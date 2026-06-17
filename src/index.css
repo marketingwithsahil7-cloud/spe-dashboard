@@ -1,0 +1,266 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    @apply bg-pitch text-white font-body antialiased;
+    scroll-behavior: smooth;
+    min-height: 100dvh;
+  }
+
+  #root {
+    min-height: 100dvh;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  /* Remove default Vite styles */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Oswald', sans-serif;
+  }
+}
+
+@layer components {
+  /* Glassmorphism signature */
+  .glass {
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+  }
+
+  .glass-hover {
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+
+  .glass-hover:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  /* Glass button */
+  .glass-button {
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    transition: all 0.2s ease;
+  }
+
+  .glass-button:hover {
+    background: rgba(0, 255, 135, 0.1);
+    border-color: rgba(0, 255, 135, 0.3);
+    box-shadow: 0 0 20px rgba(0, 255, 135, 0.2);
+  }
+
+  /* Glow effects */
+  .glow-green {
+    box-shadow: 0 0 20px rgba(0, 255, 135, 0.3),
+                0 0 60px rgba(0, 255, 135, 0.1);
+  }
+
+  .glow-amber {
+    box-shadow: 0 0 20px rgba(255, 184, 0, 0.3),
+                0 0 60px rgba(255, 184, 0, 0.1);
+  }
+
+  .glow-red {
+    box-shadow: 0 0 20px rgba(255, 61, 87, 0.4);
+    animation: pulseRed 2s ease-in-out infinite;
+  }
+
+  .glow-ice {
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.3),
+                0 0 60px rgba(0, 212, 255, 0.1);
+  }
+}
+
+@layer utilities {
+  /* Hero gradient text */
+  .text-gradient {
+    background: linear-gradient(135deg, #00FF87 0%, #00D4FF 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Danger gradient text */
+  .text-gradient-danger {
+    background: linear-gradient(135deg, #FF3D57 0%, #FF6B6B 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Card subtle gradient */
+  .bg-card-gradient {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.06) 0%,
+      rgba(255, 255, 255, 0.02) 100%
+    );
+  }
+
+  /* Hero gradient bg */
+  .bg-hero-gradient {
+    background: linear-gradient(135deg, #00FF87 0%, #00D4FF 100%);
+  }
+
+  /* Danger gradient bg */
+  .bg-danger-gradient {
+    background: linear-gradient(135deg, #FF3D57 0%, #FF6B6B 100%);
+  }
+
+  /* Skeleton shimmer — green sweep */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.05) 25%,
+      rgba(0, 255, 135, 0.15) 50%,
+      rgba(255, 255, 255, 0.05) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  /* Hide scrollbar */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Glass border shorthand */
+  .border-glass {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .border-glass-strong {
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  /* iOS momentum scrolling for drawer inner scroll areas */
+  .webkit-overflow-scrolling-touch {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Custom cursor (desktop only) */
+@media (hover: hover) and (pointer: fine) {
+  body {
+    cursor: none;
+  }
+
+  .cursor-dot {
+    width: 8px;
+    height: 8px;
+    background: #00FF87;
+    border-radius: 50%;
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+    mix-blend-mode: difference;
+    transform: translate(-50%, -50%);
+    transition: transform 0.1s ease, width 0.2s ease, height 0.2s ease;
+  }
+
+  .cursor-dot.expanded {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* Keyframes */
+@keyframes pulseRed {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(255, 61, 87, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(255, 61, 87, 0.7);
+    transform: scale(1.05);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes btnRingBurst {
+  0%   { box-shadow: 0 0 0 0 rgba(0,255,135,0.55), 0 0 24px rgba(0,255,135,0.25); }
+  55%  { box-shadow: 0 0 0 12px rgba(0,255,135,0), 0 0 40px rgba(0,255,135,0.4); }
+  100% { box-shadow: 0 0 0 0 rgba(0,255,135,0), 0 0 24px rgba(0,255,135,0.2); }
+}
+
+.btn-burst:hover {
+  animation: btnRingBurst 0.55s ease-out forwards;
+}
+
+@keyframes ballRoll {
+  0%   { transform: translateX(-56px) rotate(0deg); }
+  100% { transform: translateX(56px) rotate(720deg); }
+}
+
+@keyframes ballSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes loadingDots {
+  0%   { opacity: 0.2; }
+  50%  { opacity: 1; }
+  100% { opacity: 0.2; }
+}
+
+.rolling-ball-wrap {
+  width: 120px;
+  height: 36px;
+  position: relative;
+  overflow: hidden;
+}
+
+.rolling-ball {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 255, 135, 0.45);
+  background: rgba(0, 255, 135, 0.04);
+  animation: ballRoll 1.2s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+  position: absolute;
+  left: 0;
+}
+
+.rolling-ball::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 255, 135, 0.3);
+  animation: ballSpin 0.6s linear infinite;
+}
+
+@keyframes rippleExpand {
+  to { transform: scale(1); opacity: 0; }
+}
