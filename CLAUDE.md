@@ -13,6 +13,7 @@
 - **Stack:** React + Vite + TypeScript + Tailwind CSS + Supabase
 - **Hosting:** Netlify (free tier, zero cost)
 - **Design Standard:** $50,000 custom sports-tech platform. NOT a template. NOT a shadcn clone.
+- **GitHub:** https://github.com/marketingwithsahil7-cloud/spe-dashboard
 
 ---
 
@@ -337,12 +338,13 @@ src/
 - [x] **Phase 14:** Feature Additions — COMPLETE & VERIFIED (2026-06-16)
   - **Monthly Report PDF Download:** `jspdf` + `jspdf-autotable` installed. `src/lib/generateMonthlyReport.ts` — 5-section A4 PDF (Revenue Summary, Fee Collection Details, Expenses, Profit/Loss, Pending Fees). Dynamically imported in `FinancialsPage.tsx` via `import('../lib/generateMonthlyReport')` — keeps initial bundle clean. Green "Report" button in financials page header. Saves as `SPE_Report_<Month>_<Year>.pdf`. Build: ✓ 1.37s.
   - **Age Categories (U10/U15/Open):** SQL: `students.dob DATE` + `events.age_category TEXT` added. `src/lib/ageCategories.ts`: `getAge(dob)`, `getAgeCategory(dob)` → U10 (≤10), U15 (11–15), Open (16+). `Student` type gets `dob: string | null`; `Event` gets `age_category: string | null`; `StudentInput` gets `dob?: string | null`. `StudentForm.tsx`: Join Date + DOB side-by-side grid; live "Age X · U10" label below DOB input. `StudentCard.tsx`: ice-blue U10/U15/Open badge in badge row. `StudentList.tsx`: "All Ages / U10 / U15 / Open" filter tab row (ice-blue active style). `EventForm.tsx`: Type + Age Category side-by-side (All Ages / U10 Only / U15 Only / Open). `AvailabilityTracker.tsx`: "Message by Age Group" collapsible section — groups available students by U10/U15/Open, copy message per category + individual WA links per student. Build: ✓ 1.47s, zero TS errors.
-- [ ] **Phase 15:** PWA + Netlify Deploy
-  - vite-plugin-pwa config
-  - App icons (192 + 512px)
-  - netlify.toml + _redirects
-  - Environment variables on Netlify
-  - Live URL generation
+- [x] **Phase 15:** PWA + Netlify Deploy — COMPLETE & VERIFIED (2026-06-17)
+  - vite-plugin-pwa config (registerType: autoUpdate, Workbox runtime caching)
+  - App icons — Node.js PNG generator (no deps), soccer ball design, 192/512/180px
+  - netlify.toml + public/_redirects (SPA redirect + security headers + asset caching)
+  - Manual chunk splitting: vendor-three, vendor-charts, vendor-gsap, vendor-motion, vendor-supabase, vendor-pdf
+  - index.html: PWA meta, apple-mobile-web-app, dns-prefetch Supabase, preconnect Google Fonts
+  - Build: ✓ 1.90s, zero TS errors, sw.js + workbox-*.js generated
 
 ---
 
@@ -447,6 +449,22 @@ Student Attendance Report with shareable WhatsApp summary. Tue/Thu/Sat schedule 
 **Events INSERT RLS bug fix:** RLS `INSERT` policy on `events` table was missing `WITH CHECK (true)` — all authenticated inserts were silently rejected. Fixed by dropping and recreating the policy with `WITH CHECK (true)`. `addEvent()` in `useEvents.ts` also now defaults `age_category` to `'all'` if null. `EventForm.tsx` validates that type is selected before save.
 
 **Drawer/Modal scroll fix — app-wide (2026-06-17):** Three-part fix applied to every form drawer and Modal.tsx: (1) **`Drawer.tsx` completely rewritten** — panel is `position:fixed` sibling of backdrop (not child) to prevent Framer Motion's `will-change:transform` from creating a containing block; scrollable body uses inline `flex:1, minHeight:0, overflowY:'auto', WebkitOverflowScrolling:'touch'` with `data-drawer-scroll="true"` attribute; pinned `footer?` prop for Cancel/Save buttons. (2) **Lenis `prevent` callback** in `useLenis.ts` — skips wheel-event interception for any element inside `[data-drawer-scroll]`, so native scroll handles it. (3) **Footer buttons extracted** from scrollable children to `footer` prop in all 6 drawer forms (`PaymentForm`, `TrialForm`, `TrialResolve`, `EventForm`, `EmergencyFund.TransactionDrawer`, `RevenueFund.ExpenseFormDrawer`) + `StudentForm`. (4) **`Modal.tsx` body div** patched with `minHeight:0` inline + `data-drawer-scroll` attribute. Key CSS insight: `flex-1` alone sets `flex-shrink:1` but `min-height:auto` (browser default) prevents shrinking below content size — `minHeight:0` overrides this and is the critical unlock. Build: ✓ 1.57s.
+
+### Phase 15 — PWA + Netlify Deploy — Complete & Verified (2026-06-17)
+
+**vite.config.ts:** `VitePWA` plugin added with `registerType: 'autoUpdate'`. Workbox runtime caching: `NetworkFirst` for Supabase API (5-min TTL, 10s network timeout), `CacheFirst` for Google Fonts (1-year TTL) + images (30-day TTL), `StaleWhileRevalidate` for JS/CSS static assets. Manual chunks (function form — object form causes TS2769 with this Rollup version): vendor-three (Three.js + R3F + postprocessing), vendor-charts (Recharts), vendor-gsap (GSAP), vendor-motion (Framer Motion), vendor-supabase (@supabase/supabase-js), vendor-pdf (jsPDF).
+
+**PWA manifest:** name "Soccer Pro Elite", short_name "SPE", standalone display, portrait orientation, dark theme/bg `#0A0A0F`. Icons: 192px + 512px PNG both with `purpose: 'any'` + `purpose: 'maskable'` as separate entries (combined `any maskable` is Lighthouse-deprecated).
+
+**App icons — `scripts/generate-icons.mjs`:** Zero-dependency Node.js PNG generator using only built-in `zlib.deflateSync` + `Buffer`. Produces valid RGBA PNG (IHDR+IDAT+IEND chunks with proper CRC32). Design: `#0A0A0F` background + `#00FF87` filled circle + classic soccer-ball pentagon pattern (5 dark circles at 72° / ballR×0.54 distance + 1 central dark circle) + top-left highlight. Generates `public/icons/icon-192.png` (2.7 kB), `icon-512.png` (9.7 kB), `apple-touch-icon.png` (2.6 kB).
+
+**index.html:** Updated title to "Soccer Pro Elite". Added: `viewport-fit=cover`, `theme-color #0A0A0F`, `apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style: black-translucent`, `apple-mobile-web-app-title: SPE`, `apple-touch-icon` link, `preconnect` to fonts.googleapis.com + fonts.gstatic.com, `dns-prefetch` for `%VITE_SUPABASE_URL%` (Vite env substitution in HTML).
+
+**netlify.toml:** `command = "npm run build"`, `publish = "dist"`, Node 20. Security headers for `/*`: X-Frame-Options DENY, X-Content-Type-Options nosniff, XSS-Protection, Referrer-Policy, Permissions-Policy. Asset caching: `/assets/*` → `max-age=31536000, immutable`; `/icons/*` → `max-age=86400`; `/sw.js` + `/workbox-*.js` → `no-cache` (service worker must always revalidate).
+
+**public/_redirects:** `/* /index.html 200` — Netlify SPA catch-all (redundant with netlify.toml but belt-and-suspenders).
+
+**Build output:** 1.90s clean build. vendor-three 951KB / vendor-charts 360KB / vendor-pdf 430KB — all lazy-loaded so initial bundle stays lean (88KB gzip for main index.js). Service worker precaches 71 entries (3.17 MB). `tsc --noEmit` exits 0.
 
 ---
 
