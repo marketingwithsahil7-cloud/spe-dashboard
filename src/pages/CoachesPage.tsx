@@ -53,6 +53,7 @@ export default function CoachesPage() {
     confirmAttendance,
     disputeAttendance,
     verifyAttendance,
+    ownerConfirmAttendance,
     refetch,
   } = useCoaches()
 
@@ -169,6 +170,7 @@ export default function CoachesPage() {
             markCoachAttendance={markCoachAttendance}
             confirmAttendance={confirmAttendance}
             disputeAttendance={disputeAttendance}
+            ownerConfirmAttendance={ownerConfirmAttendance}
           />
         )}
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { format, startOfMonth, endOfMonth } from 'date-fns'
 import { supabase } from '../lib/supabase'
+import { useAuthStore } from '../store/authStore'
 import type { Coach, CoachAttendance } from '../types/index'
 
 // ─── Extended types ───────────────────────────────────────────────────────────
@@ -31,9 +32,10 @@ export interface UseCoachesReturn {
     session: string,
     markedBy: string,
   ) => Promise<void>
-  confirmAttendance:  (id: string) => Promise<void>
-  disputeAttendance:  (id: string) => Promise<void>
-  verifyAttendance:   (id: string) => Promise<void>
+  confirmAttendance:       (id: string) => Promise<void>
+  disputeAttendance:       (id: string) => Promise<void>
+  verifyAttendance:        (id: string) => Promise<void>
+  ownerConfirmAttendance:  (id: string) => Promise<void>
   refetch: () => void
 }
 
@@ -52,6 +54,25 @@ export async function fetchCoachAttendance(
     .from('coach_attendance')
     .select('*')
     .eq('coach_id', coachId)
+    .gte('date', start)
+    .lte('date', end)
+    .order('date', { ascending: false })
+
+  if (error) throw error
+  return (data ?? []) as CoachAttendance[]
+}
+
+export async function fetchAllCoachAttendanceForMonth(
+  month: number,
+  year: number,
+): Promise<CoachAttendance[]> {
+  const d     = new Date(year, month - 1)
+  const start = format(startOfMonth(d), 'yyyy-MM-dd')
+  const end   = format(endOfMonth(d),   'yyyy-MM-dd')
+
+  const { data, error } = await supabase
+    .from('coach_attendance')
+    .select('*')
     .gte('date', start)
     .lte('date', end)
     .order('date', { ascending: false })
@@ -177,6 +198,8 @@ export function useCoaches(): UseCoachesReturn {
     session:  string,
     markedBy: string,
   ): Promise<void> => {
+    // Owner's mark is instantly confirmed + verified — no peer confirmation needed
+    const ownerMarking = useAuthStore.getState().isOwner()
     const { error: err } = await supabase
       .from('coach_attendance')
       .insert({
@@ -185,9 +208,9 @@ export function useCoaches(): UseCoachesReturn {
         batch,
         session,
         marked_by:          markedBy,
-        confirmed_by_coach: false,
+        confirmed_by_coach: ownerMarking,
         disputed:           false,
-        verified:           false,
+        verified:           ownerMarking,
       })
     if (err) throw err
   }, [])
@@ -216,6 +239,15 @@ export function useCoaches(): UseCoachesReturn {
     if (err) throw err
   }, [])
 
+  // Owner bypasses peer-confirm flow: sets confirmed + verified in one shot
+  const ownerConfirmAttendance = useCallback(async (id: string): Promise<void> => {
+    const { error: err } = await supabase
+      .from('coach_attendance')
+      .update({ confirmed_by_coach: true, verified: true })
+      .eq('id', id)
+    if (err) throw err
+  }, [])
+
   return {
     coaches,
     isLoading,
@@ -224,6 +256,7 @@ export function useCoaches(): UseCoachesReturn {
     confirmAttendance,
     disputeAttendance,
     verifyAttendance,
+    ownerConfirmAttendance,
     refetch: load,
   }
 }

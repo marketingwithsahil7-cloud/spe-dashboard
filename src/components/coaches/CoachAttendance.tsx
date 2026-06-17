@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { gsap } from '../../lib/animations'
 import { useAuthStore } from '../../store/authStore'
-import { fetchDayAttendance, fetchCoachAttendance } from '../../hooks/useCoaches'
+import { fetchDayAttendance, fetchCoachAttendance, fetchAllCoachAttendanceForMonth } from '../../hooks/useCoaches'
 import { Avatar } from '../ui/Avatar'
 import { Skeleton } from '../ui/Skeleton'
 import { cn, formatDate } from '../../lib/utils'
@@ -16,10 +16,11 @@ import type { Coach, CoachAttendance as CoachAttRecord } from '../../types/index
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface CoachAttendanceProps {
-  coaches:             Coach[]
-  markCoachAttendance: (coachId: string, date: string, batch: string, session: string, markedBy: string) => Promise<void>
-  confirmAttendance:   (id: string) => Promise<void>
-  disputeAttendance:   (id: string) => Promise<void>
+  coaches:                 Coach[]
+  markCoachAttendance:     (coachId: string, date: string, batch: string, session: string, markedBy: string) => Promise<void>
+  confirmAttendance:       (id: string) => Promise<void>
+  disputeAttendance:       (id: string) => Promise<void>
+  ownerConfirmAttendance?: (id: string) => Promise<void>
 }
 
 // ─── Batch colors ─────────────────────────────────────────────────────────────
@@ -67,12 +68,14 @@ function StatusChip({ record }: { record: CoachAttRecord }) {
 // ─── Section A — Mark today's sessions ───────────────────────────────────────
 
 interface SectionAProps {
-  coaches:             Coach[]
-  markCoachAttendance: CoachAttendanceProps['markCoachAttendance']
+  coaches:                 Coach[]
+  markCoachAttendance:     CoachAttendanceProps['markCoachAttendance']
+  ownerConfirmAttendance?: (id: string) => Promise<void>
 }
 
-function SectionA({ coaches, markCoachAttendance }: SectionAProps) {
+function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: SectionAProps) {
   const currentCoach = useAuthStore(s => s.coach)
+  const isOwnerUser  = useAuthStore(s => s.role === 'owner')
 
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [dayRecords,   setDayRecords]   = useState<CoachAttRecord[]>([])
@@ -123,7 +126,7 @@ function SectionA({ coaches, markCoachAttendance }: SectionAProps) {
         batch,          // session = batch
         currentCoach.id,
       )
-      // Optimistically add to local state
+      // Optimistically add to local state — owner gets instant confirmed+verified
       setDayRecords(prev => [...prev, {
         id:                 `tmp-${Date.now()}`,
         coach_id:           coach.id,
@@ -131,9 +134,9 @@ function SectionA({ coaches, markCoachAttendance }: SectionAProps) {
         batch,
         session:            batch,
         marked_by:          currentCoach.id,
-        confirmed_by_coach: false,
+        confirmed_by_coach: isOwnerUser,
         disputed:           false,
-        verified:           false,
+        verified:           isOwnerUser,
         created_at:         new Date().toISOString(),
       }])
     } catch {
@@ -159,6 +162,22 @@ function SectionA({ coaches, markCoachAttendance }: SectionAProps) {
       await loadDay(selectedDate)
     } finally {
       setMarkingAll(null)
+    }
+  }
+
+  async function handleOwnerConfirm(record: CoachAttRecord) {
+    if (!ownerConfirmAttendance) return
+    const key = `confirm-${record.id}`
+    setMarkingId(key)
+    try {
+      await ownerConfirmAttendance(record.id)
+      setDayRecords(prev => prev.map(r =>
+        r.id === record.id ? { ...r, confirmed_by_coach: true, verified: true } : r,
+      ))
+    } catch {
+      await loadDay(selectedDate)
+    } finally {
+      setMarkingId(null)
     }
   }
 
@@ -281,7 +300,26 @@ function SectionA({ coaches, markCoachAttendance }: SectionAProps) {
                       </div>
 
                       {record ? (
-                        <StatusChip record={record} />
+                        isOwnerUser && !record.confirmed_by_coach && !record.disputed ? (
+                          <button
+                            disabled={markingId === `confirm-${record.id}`}
+                            onClick={() => handleOwnerConfirm(record)}
+                            className="flex items-center gap-1.5 font-body text-xs font-semibold px-3 py-1.5 rounded-lg transition-all hover:opacity-80 disabled:opacity-50"
+                            style={{
+                              background: 'rgba(0,255,135,0.1)',
+                              border:     '1px solid rgba(0,255,135,0.25)',
+                              color:      '#00FF87',
+                            }}
+                          >
+                            {markingId === `confirm-${record.id}`
+                              ? <Loader2 size={11} className="animate-spin" />
+                              : <CheckCircle2 size={11} />
+                            }
+                            {markingId === `confirm-${record.id}` ? 'Confirming…' : 'Confirm'}
+                          </button>
+                        ) : (
+                          <StatusChip record={record} />
+                        )
                       ) : (
                         <button
                           disabled={marking}
@@ -315,13 +353,15 @@ function SectionA({ coaches, markCoachAttendance }: SectionAProps) {
 // ─── Section B — My confirmations ─────────────────────────────────────────────
 
 interface SectionBProps {
-  coaches:           Coach[]
-  confirmAttendance: CoachAttendanceProps['confirmAttendance']
-  disputeAttendance: CoachAttendanceProps['disputeAttendance']
+  coaches:                 Coach[]
+  confirmAttendance:       CoachAttendanceProps['confirmAttendance']
+  disputeAttendance:       CoachAttendanceProps['disputeAttendance']
+  ownerConfirmAttendance?: (id: string) => Promise<void>
 }
 
-function SectionB({ coaches, confirmAttendance, disputeAttendance }: SectionBProps) {
+function SectionB({ coaches, confirmAttendance, disputeAttendance, ownerConfirmAttendance }: SectionBProps) {
   const currentCoach = useAuthStore(s => s.coach)
+  const isOwnerUser  = useAuthStore(s => s.role === 'owner')
 
   const [records,     setRecords]     = useState<CoachAttRecord[]>([])
   const [loadingRecs, setLoadingRecs] = useState(false)
@@ -334,14 +374,17 @@ function SectionB({ coaches, confirmAttendance, disputeAttendance }: SectionBPro
     if (!currentCoach) return
     setLoadingRecs(true)
     try {
-      const recs = await fetchCoachAttendance(currentCoach.id, today.getMonth() + 1, today.getFullYear())
+      // Owner sees all coaches' records; others see only their own
+      const recs = isOwnerUser
+        ? await fetchAllCoachAttendanceForMonth(today.getMonth() + 1, today.getFullYear())
+        : await fetchCoachAttendance(currentCoach.id, today.getMonth() + 1, today.getFullYear())
       setRecords(recs)
     } catch {
       // silent
     } finally {
       setLoadingRecs(false)
     }
-  }, [currentCoach]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentCoach, isOwnerUser]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadMyRecords() }, [loadMyRecords])
 
@@ -384,6 +427,21 @@ function SectionB({ coaches, confirmAttendance, disputeAttendance }: SectionBPro
     }
   }
 
+  async function handleOwnerConfirmRec(record: CoachAttRecord) {
+    if (!ownerConfirmAttendance) return
+    setActingId(record.id)
+    try {
+      await ownerConfirmAttendance(record.id)
+      setRecords(prev => prev.map(r =>
+        r.id === record.id ? { ...r, confirmed_by_coach: true, verified: true } : r,
+      ))
+    } catch {
+      // silent
+    } finally {
+      setActingId(null)
+    }
+  }
+
   const coachMap = Object.fromEntries(coaches.map(c => [c.id, c.name]))
 
   return (
@@ -391,10 +449,13 @@ function SectionB({ coaches, confirmAttendance, disputeAttendance }: SectionBPro
       {/* Header */}
       <div>
         <h3 className="font-display text-sm font-semibold text-white uppercase tracking-widest">
-          My Sessions — {format(today, 'MMMM yyyy')}
+          {isOwnerUser ? 'All Sessions' : 'My Sessions'} — {format(today, 'MMMM yyyy')}
         </h3>
         <p className="font-body text-xs text-slate-500 mt-0.5">
-          Confirm or dispute your recorded sessions
+          {isOwnerUser
+            ? 'Confirm any pending session instantly — your word is final'
+            : 'Confirm or dispute your recorded sessions'
+          }
         </p>
       </div>
 
@@ -420,7 +481,9 @@ function SectionB({ coaches, confirmAttendance, disputeAttendance }: SectionBPro
           <div className="grid grid-cols-[auto_1fr_auto_auto] gap-3 px-1 pb-1"
                style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
             <span className="font-body text-[10px] text-slate-600 uppercase tracking-wider w-20">Date</span>
-            <span className="font-body text-[10px] text-slate-600 uppercase tracking-wider">Batch</span>
+            <span className="font-body text-[10px] text-slate-600 uppercase tracking-wider">
+              {isOwnerUser ? 'Coach · Batch' : 'Batch'}
+            </span>
             <span className="font-body text-[10px] text-slate-600 uppercase tracking-wider">Marked by</span>
             <span className="font-body text-[10px] text-slate-600 uppercase tracking-wider">Status</span>
           </div>
@@ -447,6 +510,11 @@ function SectionB({ coaches, confirmAttendance, disputeAttendance }: SectionBPro
                   {formatDate(record.date)}
                 </span>
                 <span className="font-body text-xs text-white font-medium truncate">
+                  {isOwnerUser && (
+                    <span className="text-slate-500 mr-1">
+                      {coachMap[record.coach_id] ?? 'Unknown'} ·
+                    </span>
+                  )}
                   {record.batch}
                 </span>
                 <span className="font-body text-xs text-slate-500 shrink-0">
@@ -455,26 +523,38 @@ function SectionB({ coaches, confirmAttendance, disputeAttendance }: SectionBPro
 
                 <div className="shrink-0 flex items-center gap-1.5">
                   {canAct ? (
-                    <>
+                    isOwnerUser ? (
                       <button
-                        disabled={isActing || isDispute}
-                        onClick={() => handleConfirm(record)}
+                        disabled={isActing}
+                        onClick={() => handleOwnerConfirmRec(record)}
                         className="flex items-center gap-1 font-body text-[10px] font-semibold px-2 py-1 rounded-lg transition-all hover:opacity-80 disabled:opacity-50"
                         style={{ background: 'rgba(0,255,135,0.1)', border: '1px solid rgba(0,255,135,0.25)', color: '#00FF87' }}
                       >
                         {isActing ? <Loader2 size={9} className="animate-spin" /> : <CheckCircle2 size={9} />}
                         Confirm
                       </button>
-                      <button
-                        disabled={isActing || isDispute}
-                        onClick={() => handleDispute(record)}
-                        className="flex items-center gap-1 font-body text-[10px] font-semibold px-2 py-1 rounded-lg transition-all hover:opacity-80 disabled:opacity-50"
-                        style={{ background: 'rgba(255,61,87,0.08)', border: '1px solid rgba(255,61,87,0.25)', color: '#FF3D57' }}
-                      >
-                        {isDispute ? <Loader2 size={9} className="animate-spin" /> : <AlertTriangle size={9} />}
-                        Dispute
-                      </button>
-                    </>
+                    ) : (
+                      <>
+                        <button
+                          disabled={isActing || isDispute}
+                          onClick={() => handleConfirm(record)}
+                          className="flex items-center gap-1 font-body text-[10px] font-semibold px-2 py-1 rounded-lg transition-all hover:opacity-80 disabled:opacity-50"
+                          style={{ background: 'rgba(0,255,135,0.1)', border: '1px solid rgba(0,255,135,0.25)', color: '#00FF87' }}
+                        >
+                          {isActing ? <Loader2 size={9} className="animate-spin" /> : <CheckCircle2 size={9} />}
+                          Confirm
+                        </button>
+                        <button
+                          disabled={isActing || isDispute}
+                          onClick={() => handleDispute(record)}
+                          className="flex items-center gap-1 font-body text-[10px] font-semibold px-2 py-1 rounded-lg transition-all hover:opacity-80 disabled:opacity-50"
+                          style={{ background: 'rgba(255,61,87,0.08)', border: '1px solid rgba(255,61,87,0.25)', color: '#FF3D57' }}
+                        >
+                          {isDispute ? <Loader2 size={9} className="animate-spin" /> : <AlertTriangle size={9} />}
+                          Dispute
+                        </button>
+                      </>
+                    )
                   ) : (
                     <StatusChip record={record} />
                   )}
@@ -495,11 +575,12 @@ export function CoachAttendance({
   markCoachAttendance,
   confirmAttendance,
   disputeAttendance,
+  ownerConfirmAttendance,
 }: CoachAttendanceProps) {
   return (
     <div className="space-y-5">
-      <SectionA coaches={coaches} markCoachAttendance={markCoachAttendance} />
-      <SectionB coaches={coaches} confirmAttendance={confirmAttendance} disputeAttendance={disputeAttendance} />
+      <SectionA coaches={coaches} markCoachAttendance={markCoachAttendance} ownerConfirmAttendance={ownerConfirmAttendance} />
+      <SectionB coaches={coaches} confirmAttendance={confirmAttendance} disputeAttendance={disputeAttendance} ownerConfirmAttendance={ownerConfirmAttendance} />
     </div>
   )
 }
