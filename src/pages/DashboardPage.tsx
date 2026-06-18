@@ -1,10 +1,11 @@
-import { lazy, Suspense, useRef, useEffect } from 'react'
+import { lazy, Suspense, useRef, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, FileText, ArrowRight } from 'lucide-react'
 import { gsap } from '../lib/animations'
 import { useAuthStore } from '../store/authStore'
 import { useDashboard } from '../hooks/useDashboard'
+import { supabase } from '../lib/supabase'
 import { ROUTES } from '../lib/constants'
 import { StatsCards } from '../components/dashboard/StatsCards'
 import { TrialAlertBar } from '../components/dashboard/TrialAlertBar'
@@ -14,6 +15,43 @@ import { Button } from '../components/ui/Button'
 import { SkeletonStat } from '../components/ui/Skeleton'
 
 const SoccerBall3D = lazy(() => import('../components/dashboard/SoccerBall3D'))
+
+// ─── Missing reports card ─────────────────────────────────────────────────────
+
+function MissingReportsCard({ count, onClick }: { count: number; onClick: () => void }) {
+  return (
+    <div
+      className="glass p-4 flex items-center justify-between gap-4"
+      style={{ border: '1px solid rgba(255,184,0,0.2)' }}
+    >
+      <div className="flex items-center gap-3">
+        <div
+          className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: 'rgba(255,184,0,0.1)', border: '1px solid rgba(255,184,0,0.2)' }}
+        >
+          <FileText size={18} className="text-amber" />
+        </div>
+        <div>
+          <p className="font-body text-sm font-semibold text-white">
+            {count} student{count > 1 ? 's' : ''} {count === 1 ? 'needs' : 'need'} monthly report{count > 1 ? 's' : ''}
+          </p>
+          <p className="font-body text-xs text-slate-500">
+            Generate and send performance cards to parents via WhatsApp
+          </p>
+        </div>
+      </div>
+      <Button
+        variant="secondary"
+        size="sm"
+        icon={<ArrowRight size={13} />}
+        onClick={onClick}
+        className="shrink-0"
+      >
+        Students
+      </Button>
+    </div>
+  )
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -28,11 +66,23 @@ function getGreeting(): string {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const navigate = useNavigate()
-  const coach    = useAuthStore(state => state.coach)
-  const firstName = coach?.name.split(' ')[0] ?? 'Coach'
+  const navigate   = useNavigate()
+  const { coach, isHeadOrOwner } = useAuthStore()
+  const firstName  = coach?.name.split(' ')[0] ?? 'Coach'
+  const headOrOwner = isHeadOrOwner()
 
   const { stats, pendingTrials, feesActionList, monthlyTrend, batchBreakdown, isLoading, error, refetch } = useDashboard()
+
+  const [missingReports, setMissingReports] = useState<number | null>(null)
+
+  // Only fetch on 25th+ of the month for head/owner coaches
+  useEffect(() => {
+    if (!headOrOwner || new Date().getDate() < 25) return
+    supabase
+      .from('students_missing_report_this_month')
+      .select('id')
+      .then(({ data }) => setMissingReports(data?.length ?? 0))
+  }, [headOrOwner])
 
   const hasOverdue = feesActionList.some(item => item.feeStatus === 'overdue')
 
@@ -178,6 +228,14 @@ export default function DashboardPage() {
           isLoading={isLoading}
         />
       </div>
+
+      {/* ── 4.5. Missing reports reminder (25th+ only) ───────────────────── */}
+      {headOrOwner && missingReports !== null && missingReports > 0 && (
+        <MissingReportsCard
+          count={missingReports}
+          onClick={() => navigate(ROUTES.STUDENTS)}
+        />
+      )}
 
       {/* ── 5. Charts ─────────────────────────────────────────────────────── */}
       <div ref={chartsRef}>

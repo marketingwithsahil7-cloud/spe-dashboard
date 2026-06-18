@@ -33,6 +33,9 @@ export interface Permissions {
   canViewAllCoaches:       boolean
   canConfirmOwnAttendance: boolean
 
+  // Report card generation
+  canGenerateReport: boolean
+
   // Owner-only superpowers
   canManageCoaches:    boolean
   canChangeRoles:      boolean
@@ -80,6 +83,9 @@ export function usePermissions(): Permissions {
     // Coach actions
     canViewAllCoaches:       headOrOwner,
     canConfirmOwnAttendance: true,
+
+    // Report card — head/owner only
+    canGenerateReport: headOrOwner,
 
     // Owner-only superpowers (Sahil only)
     canManageCoaches:    owner,

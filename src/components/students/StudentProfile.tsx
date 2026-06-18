@@ -8,6 +8,7 @@ import {
 import {
   ArrowLeft, Pencil, User, Calendar, IndianRupee,
   CheckCircle2, XCircle, MessageCircle, PlusCircle, RefreshCw,
+  FileText, Star, ExternalLink,
 } from 'lucide-react'
 import { gsap } from '../../lib/animations'
 import { supabase } from '../../lib/supabase'
@@ -18,12 +19,14 @@ import { Button } from '../ui/Button'
 import { SkeletonCard, Skeleton } from '../ui/Skeleton'
 import { cn, formatCurrency, formatDate, formatPhone } from '../../lib/utils'
 import { getWhatsAppURL, ROUTES } from '../../lib/constants'
-import type { Student, Attendance, Payment, FeeStatus } from '../../types/index'
+import { useReports } from '../../hooks/useReports'
+import { ReportCardForm } from './ReportCardForm'
+import type { Student, Attendance, Payment, FeeStatus, StudentReport, SkillRatings } from '../../types/index'
 import type { StudentWithFee } from '../../hooks/useStudents'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type TabId = 'overview' | 'attendance' | 'payments'
+type TabId = 'overview' | 'attendance' | 'payments' | 'reports'
 
 interface ProfileState {
   student:        StudentWithFee | null
@@ -478,12 +481,182 @@ function HeroSkeleton() {
   )
 }
 
+// ─── Reports tab ─────────────────────────────────────────────────────────────
+
+const SKILL_LABEL_MAP: Record<keyof SkillRatings, string> = {
+  ball_control:        'Ball Control',
+  passing:             'Passing',
+  shooting:            'Shooting',
+  speed_agility:       'Speed & Agility',
+  discipline_attitude: 'Discipline & Attitude',
+  teamwork:            'Teamwork',
+}
+
+function MiniStars({ rating }: { rating: number }) {
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map(n => (
+        <Star
+          key={n}
+          size={10}
+          style={{
+            fill:   n <= Math.round(rating) ? '#00D4FF' : 'none',
+            stroke: n <= Math.round(rating) ? '#00D4FF' : '#475569',
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function buildReportWhatsAppUrl(report: StudentReport, student: StudentWithFee): string {
+  const phone = student.parent_phone?.replace(/\D/g, '') ?? ''
+  if (!phone || !report.pdf_url) return ''
+  const monthLabel = format(new Date(report.year, report.month - 1, 1), 'MMMM yyyy')
+  const avg = Object.values(report.skill_ratings).reduce((a, b) => a + b, 0) / 6
+  const progress = avg >= 4 ? 'Excellent' : avg >= 2.5 ? 'Good' : 'Improving'
+  const msg = [
+    `Hello ${student.parent_name ? student.parent_name + ',' : ''}`,
+    '',
+    `📋 ${student.name}'s Performance Report for ${monthLabel} is ready!`,
+    '',
+    `⭐ Overall Progress: ${progress}`,
+    '',
+    `View full report here:`,
+    report.pdf_url,
+    '',
+    `— Soccer Pro Elite Football Academy`,
+  ].join('\n')
+  return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`
+}
+
+function ReportsTab({
+  student,
+  onGenerateClick,
+}: {
+  student: StudentWithFee
+  onGenerateClick: () => void
+}) {
+  const { reports, isLoading, error } = useReports(student.id)
+  const { canGenerateReport } = usePermissions()
+
+  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-3">
+        {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 rounded-xl skeleton" />)}
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="glass p-6 flex flex-col items-center gap-3 text-center">
+        <XCircle size={24} className="text-danger" />
+        <p className="font-body text-sm text-slate-400">{error}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Generate button */}
+      {canGenerateReport && (
+        <Button
+          variant="primary"
+          size="sm"
+          icon={<FileText size={14} />}
+          onClick={onGenerateClick}
+          className="self-start"
+        >
+          Generate New Report
+        </Button>
+      )}
+
+      {/* Report history list */}
+      {reports.length === 0 ? (
+        <div className="glass p-8 flex flex-col items-center gap-3 text-center">
+          <FileText size={28} className="text-slate-600" />
+          <p className="font-display text-sm text-slate-400 uppercase tracking-wide">No Reports Yet</p>
+          <p className="font-body text-xs text-slate-600">
+            Generate a monthly report card to share with parents via WhatsApp.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {reports.map(report => {
+            const avg = Object.values(report.skill_ratings).reduce((a, b) => a + b, 0) / 6
+            const waUrl = buildReportWhatsAppUrl(report, student)
+            return (
+              <div key={report.id} className="glass p-4 flex flex-col gap-3">
+                {/* Header row */}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-display text-sm font-semibold text-white">
+                      {MONTH_NAMES[report.month - 1]} {report.year}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <MiniStars rating={avg} />
+                      <span className="font-body text-xs text-slate-500">{avg.toFixed(1)} avg</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {waUrl && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<MessageCircle size={13} />}
+                        onClick={() => window.open(waUrl, '_blank')}
+                      >
+                        Resend
+                      </Button>
+                    )}
+                    {report.pdf_url && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={<ExternalLink size={13} />}
+                        onClick={() => window.open(report.pdf_url!, '_blank')}
+                      >
+                        PDF
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Skill summary grid */}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  {(Object.keys(report.skill_ratings) as Array<keyof SkillRatings>).map(key => (
+                    <div key={key} className="flex items-center justify-between">
+                      <span className="font-body text-[11px] text-slate-500">{SKILL_LABEL_MAP[key]}</span>
+                      <MiniStars rating={report.skill_ratings[key]} />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Remarks preview */}
+                {report.coach_remarks && (
+                  <p className="font-body text-xs text-slate-400 italic border-l-2 border-grass/30 pl-3 line-clamp-2">
+                    {report.coach_remarks}
+                  </p>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Tab bar ──────────────────────────────────────────────────────────────────
 
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'overview',   label: 'Overview'   },
   { id: 'attendance', label: 'Attendance' },
   { id: 'payments',   label: 'Payments'   },
+  { id: 'reports',    label: 'Reports'    },
 ]
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -491,10 +664,13 @@ const TABS: Array<{ id: TabId; label: string }> = [
 export function StudentProfile({ onEdit }: { onEdit: (student: StudentWithFee) => void }) {
   const { id }          = useParams<{ id: string }>()
   const navigate        = useNavigate()
-  const { canEditStudent } = usePermissions()
+  const { canEditStudent, canGenerateReport } = usePermissions()
 
   const [activeTab,     setActiveTab]     = useState<TabId>('overview')
   const [selectedMonth, setSelectedMonth] = useState(new Date())
+  const [showReportForm, setShowReportForm] = useState(false)
+
+  const { generateAndSave, refetch: refetchReports } = useReports(id ?? '')
 
   const heroRef = useRef<HTMLDivElement>(null)
 
@@ -553,17 +729,28 @@ export function StudentProfile({ onEdit }: { onEdit: (student: StudentWithFee) =
                 </p>
               )}
             </div>
-            {canEditStudent && (
-              <Button
-                variant="secondary"
-                size="sm"
-                icon={<Pencil size={13} />}
-                className="shrink-0"
-                onClick={() => onEdit(student)}
-              >
-                Edit
-              </Button>
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+              {canGenerateReport && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<FileText size={13} />}
+                  onClick={() => { setActiveTab('reports'); setShowReportForm(true) }}
+                >
+                  Report
+                </Button>
+              )}
+              {canEditStudent && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<Pencil size={13} />}
+                  onClick={() => onEdit(student)}
+                >
+                  Edit
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Quick stats row */}
@@ -613,6 +800,16 @@ export function StudentProfile({ onEdit }: { onEdit: (student: StudentWithFee) =
         ))}
       </div>
 
+      {/* ── Report card form drawer ─────────────────────────────────────── */}
+      {student && (
+        <ReportCardForm
+          isOpen={showReportForm}
+          onClose={() => { setShowReportForm(false); refetchReports() }}
+          student={student}
+          onGenerate={generateAndSave}
+        />
+      )}
+
       {/* ── Tab content ─────────────────────────────────────────────────── */}
       <AnimatePresence mode="wait">
         <motion.div
@@ -642,6 +839,12 @@ export function StudentProfile({ onEdit }: { onEdit: (student: StudentWithFee) =
                   payments={payments}
                   totalPaidYear={totalPaidYear}
                   studentId={student.id}
+                />
+              )}
+              {activeTab === 'reports' && (
+                <ReportsTab
+                  student={student}
+                  onGenerateClick={() => setShowReportForm(true)}
                 />
               )}
             </>

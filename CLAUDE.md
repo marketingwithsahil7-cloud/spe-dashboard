@@ -212,6 +212,15 @@ Card:    linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.0
 ### coach_attendance
 `coach_id, date, batch, session, confirmed_by_coach, disputed, verified`
 
+### student_reports
+`student_id, month (1–12), year, skill_ratings (JSONB), coach_remarks (TEXT), pdf_url (TEXT), created_by`
+- UNIQUE(student_id, month, year)
+- skill_ratings keys: ball_control, passing, shooting, speed_agility, discipline_attitude, teamwork — each 0–5
+- Storage bucket: `student-reports` (public) — PDFs at `{studentId}/{year}-{MM}.pdf`
+
+### students_missing_report_this_month (VIEW)
+Active students who have no `student_reports` row for the current calendar month. Used by dashboard reminder card.
+
 ### SQL Functions
 - `get_fee_status(p_student_id UUID)` → `(next_due_date, days_overdue, fee_status)`
   - fee_status: `'overdue'` | `'due_today'` | `'due_soon'` (≤3 days) | `'paid'`
@@ -345,6 +354,15 @@ src/
   - Manual chunk splitting: vendor-three, vendor-charts, vendor-gsap, vendor-motion, vendor-supabase, vendor-pdf
   - index.html: PWA meta, apple-mobile-web-app, dns-prefetch Supabase, preconnect Google Fonts
   - Build: ✓ 1.90s, zero TS errors, sw.js + workbox-*.js generated
+- [x] **Phase 16:** Student Report Card PDF + WhatsApp Link Sharing — COMPLETE & VERIFIED (2026-06-18)
+  - **DB:** `student_reports` table (id, student_id, month, year, skill_ratings JSONB, coach_remarks, pdf_url, created_by) + UNIQUE(student_id, month, year). RLS: head/owner full CRUD, assistant read-only. Storage bucket `student-reports` (public). View `students_missing_report_this_month` (active students with no report this month).
+  - **PDF Generator:** `src/lib/generateReportCard.ts` — A4 portrait, pure jsPDF (no autoTable). Sections: dark header band, student info box with green left accent, attendance progress bar, skill ratings table (6 rows × custom drawn rating bars), fee status badge, coach's remarks box with green accent, overall progress summary, footer. `generateReportCard(params) → Promise<Blob>`. Dynamically imported to keep jsPDF out of initial bundle.
+  - **Hook:** `src/hooks/useReports.ts` — fetches `student_reports` for a student, exposes `generateAndSave(params)` which: generates PDF blob → uploads to `student-reports/{studentId}/{year}-{MM}.pdf` → upserts DB record → returns `{ pdfUrl, whatsappUrl }`. WhatsApp message includes attendance stats, overall progress label, and public PDF link.
+  - **Form:** `src/components/students/ReportCardForm.tsx` — Drawer with month/year selector (last 6 months), auto-fetched attendance stats for selected month, 6-skill star rating UI (lucide-react Star icons, ice-blue fill on hover/select), coach remarks textarea, "Generate & Share" footer button. Success state shows WhatsApp + View PDF buttons.
+  - **StudentProfile.tsx:** Added `reports` tab (4th tab). `ReportsTab` sub-component shows past reports with mini star summary, skill breakdown grid, remarks preview, "Resend" WhatsApp button, "PDF" view button. Hero section gets "Report" button (head/owner only) → opens form drawer. `useReports` hook called at profile level, `generateAndSave` passed to drawer as prop.
+  - **Dashboard card:** `MissingReportsCard` — shown after 25th of month when ≥1 active student lacks a report. Head/owner only. Queries `students_missing_report_this_month` view. Amber-bordered glass card with FileText icon → navigate to `/students`.
+  - **`usePermissions`:** Added `canGenerateReport: headOrOwner` flag.
+  - Build: ✓ 2.17s, zero TS errors. `generateReportCard` lands in its own 5.70 kB chunk (lazy-loaded alongside jsPDF's vendor-pdf bundle).
 
 ---
 

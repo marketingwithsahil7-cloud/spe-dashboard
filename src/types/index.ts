@@ -160,6 +160,27 @@ export interface FinancialNote {
   created_at: string
 }
 
+export interface SkillRatings {
+  ball_control: number
+  passing: number
+  shooting: number
+  speed_agility: number
+  discipline_attitude: number
+  teamwork: number
+}
+
+export interface StudentReport {
+  id: string
+  student_id: string
+  month: number
+  year: number
+  skill_ratings: SkillRatings
+  coach_remarks: string | null
+  pdf_url: string | null
+  created_by: string
+  created_at: string
+}
+
 // ─── Computed / Function Types ─────────────────────────────────────────────────
 
 export interface FeeStatusResult {
@@ -244,6 +265,12 @@ export interface Database {
         Row: FinancialNote
         Insert: Omit<FinancialNote, 'id' | 'created_at'> & { id?: string; created_at?: string }
         Update: Partial<Omit<FinancialNote, 'id'>>
+        Relationships: []
+      }
+      student_reports: {
+        Row: StudentReport
+        Insert: Omit<StudentReport, 'id' | 'created_at'> & { id?: string; created_at?: string }
+        Update: Partial<Omit<StudentReport, 'id'>>
         Relationships: []
       }
     }
