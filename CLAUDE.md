@@ -529,6 +529,14 @@ Four production-critical fixes applied before go-live.
 - **Layout rebuild:** Replaced hardcoded y positions with a calculated yPos variable. Sections: header band 44mm → amount+label 28mm → player card 41mm → payment card 34mm → next-due bar 12mm → footer at ~200mm. All verified to fit within 210mm with clear breathing gaps between sections.
 - **Dual gray contrast levels:** `GR [148,163,184]` for labels on dark card backgrounds; `SGR [80,96,115]` for sub-text on white body — appropriate contrast for each surface.
 
+**Fix 6 — Share PDF via Web Share API (2026-06-28) — commit `3c08cca`:**
+- **New `src/lib/sharePdf.ts`:** `sharePdfFile(blob, fileName, title, text)` — calls `navigator.canShare({ files })` to test mobile file-share support; if available, invokes `navigator.share()` which opens the OS share sheet (WhatsApp etc. with the actual PDF attached); if not supported (desktop/old browser), falls back to `URL.createObjectURL()` + `<a download>` trigger. `AbortError` (user cancelled share sheet) returns `{ success: false, method: 'cancelled' }` — no error toast. Chunk size: 1.02 kB.
+- **`PaymentForm.tsx`:** Success footer updated — "Share PDF" (primary, green, Share2 icon) replaces old "View Invoice"; "WhatsApp Link" (secondary) kept as fallback. `InvoiceResult` extended with `pdfBlob: Blob`; `buildInvoice` returns the blob alongside pdfUrl+whatsappUrl so no second Supabase download is needed. `useToast` added for share feedback. Small hint text: "Share PDF opens native share sheet on mobile".
+- **`ReportCardForm.tsx`:** Same 3-button pattern (Share PDF / WhatsApp Link / View PDF / Done). `onGenerate` prop + `result` state type extended with `pdfBlob: Blob`. `handleShareReport` uses `sharePdfFile` with filename `Report_{Name}_{Month_Year}.pdf`. Toast on success/error.
+- **`useReports.ts`:** `generateAndSave` return type extended to `{ pdfUrl, whatsappUrl, pdfBlob: Blob }` — blob available immediately post-generation.
+- Requires HTTPS (Netlify already provides). Works on Android Chrome / iOS Safari 15+. Desktop shows download fallback.
+- Build: ✓ 3.57s, zero TS errors.
+
 ---
 
 ## 13. KNOWN ISSUES
