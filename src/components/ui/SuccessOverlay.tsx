@@ -15,6 +15,11 @@ export function SuccessOverlay({ message = 'Saved!', onDone }: SuccessOverlayPro
   const textRef      = useRef<HTMLParagraphElement>(null)
   const rootRef      = useRef<HTMLDivElement>(null)
 
+  // Keep onDone in a ref so the GSAP timeline (created once on mount) always
+  // calls the latest version without needing to restart when the prop changes.
+  const onDoneRef = useRef(onDone)
+  useEffect(() => { onDoneRef.current = onDone }, [onDone])
+
   useEffect(() => {
     const ctx = gsap.context(() => {
       // Build burst particles
@@ -52,7 +57,8 @@ export function SuccessOverlay({ message = 'Saved!', onDone }: SuccessOverlayPro
         }
       }
 
-      const tl = gsap.timeline({ onComplete: onDone })
+      // Timeline reads onDone via ref — never cancelled by prop identity changes
+      const tl = gsap.timeline({ onComplete: () => onDoneRef.current() })
 
       // Circle scales in with spring
       tl.fromTo(circleRef.current,
@@ -75,6 +81,9 @@ export function SuccessOverlay({ message = 'Saved!', onDone }: SuccessOverlayPro
         { opacity: 1, y: 0, duration: 0.35, ease: 'power2.out' },
         0.4
       )
+      // Kill pointer events the moment the fade-out begins — belt-and-suspenders:
+      // even if the parent fails to unmount this overlay, it won't block taps.
+      tl.set(rootRef.current, { pointerEvents: 'none' }, 1.2)
       // Hold → fade out
       tl.to(rootRef.current,
         { opacity: 0, scale: 0.96, duration: 0.4, ease: 'power2.in' },
@@ -83,7 +92,7 @@ export function SuccessOverlay({ message = 'Saved!', onDone }: SuccessOverlayPro
     })
 
     return () => ctx.revert()
-  }, [onDone])
+  }, [])  // empty deps: timeline is created once on mount, onDone read via ref
 
   return createPortal(
     <div

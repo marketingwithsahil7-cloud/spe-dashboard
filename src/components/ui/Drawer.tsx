@@ -17,7 +17,8 @@ interface DrawerProps {
 const backdropVariants = {
   initial: { opacity: 0 },
   animate: { opacity: 1, transition: { duration: 0.2 } },
-  exit:    { opacity: 0, transition: { duration: 0.2 } },
+  // pointer-events:none on exit so the animating backdrop doesn't eat BottomNav taps
+  exit:    { opacity: 0, pointerEvents: 'none' as const, transition: { duration: 0.2 } },
 }
 
 export function Drawer({ isOpen, onClose, title, children, footer, width = '420px', className }: DrawerProps) {
@@ -38,6 +39,18 @@ export function Drawer({ isOpen, onClose, title, children, footer, width = '420p
       lenis?.start()
     }
   }, [isOpen])
+
+  // Safety net: if the component unmounts while the drawer is still open
+  // (e.g. the user navigates away), always clear the body lock and restart Lenis.
+  useEffect(() => {
+    return () => {
+      document.body.style.position = ''
+      document.body.style.top      = ''
+      document.body.style.width    = ''
+      const lenis = (window as unknown as Record<string, unknown>).__lenis as { start: () => void } | undefined
+      lenis?.start()
+    }
+  }, [])
 
   useEffect(() => {
     if (!isOpen) return

@@ -211,15 +211,17 @@ export function StudentForm({ isOpen, onClose, student, onAdd, onUpdate, onUploa
   const [saveError,    setSaveError]    = useState<string | null>(null)
   const [showSuccess,  setShowSuccess]  = useState(false)
 
-  // Populate form when opening in edit mode, reset when switching to add mode
+  // Reset overlay/error on every isOpen change — including close.
+  // showSuccess MUST clear on close: if the invisible overlay stays in the DOM
+  // at z-10000 after its GSAP fade, it blocks all taps until the next page refresh.
   useEffect(() => {
+    setSaveError(null)
+    setShowSuccess(false)
     if (isOpen) {
       setForm(student ? studentToForm(student) : blankForm())
       setErrors({})
       setPhotoFile(null)
       setPhotoPreview(null)
-      setSaveError(null)
-      setShowSuccess(false)
     }
   }, [isOpen, student])
 

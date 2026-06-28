@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react'
+import { useState, useCallback, lazy, Suspense } from 'react'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { PageGlow } from '../components/ui/PageGlow'
 import { PullToRefreshIndicator } from '../components/ui/PullToRefresh'
@@ -26,10 +26,10 @@ export default function StudentsPage() {
     setDrawerOpen(true)
   }
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setDrawerOpen(false)
     setEditingStudent(null)
-  }
+  }, [])
 
   const { pullY, refreshing } = usePullToRefresh(refetch)
 
