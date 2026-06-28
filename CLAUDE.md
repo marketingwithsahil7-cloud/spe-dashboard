@@ -368,13 +368,18 @@ src/
 
 ## 10. SAMPLE DATA
 
-Database contains development seed data:
-- 20 students (18 active, 2 trial) — Indian names, real-looking +91 phones
-- 4 coaches (Sahil = owner, Sandeep Rawat = head, Jay + Priya = assistant)
-- 7 days of attendance (~80% rate)
-- 2 months of payments (students 1–10 paid this month, 11–18 overdue — for testing)
-- 2 trials (1 pending, 1 no_response)
-- 1 upcoming friendly event
+> **PRODUCTION LAUNCH — 2026-06-19**
+> All sample/seed data was cleared from the database. The app is now live and ready for real student data entry.
+> Backup CSVs of all seed data (students, attendance, payments, trials, events, event_availability, student_reports) were exported from Supabase before deletion.
+> Coaches table was NOT cleared — Sahil (owner), Sandeep Rawat (head), Jay + Priya (assistant) remain.
+
+~~Database contains development seed data:~~
+~~- 20 students (18 active, 2 trial) — Indian names, real-looking +91 phones~~
+~~- 4 coaches (Sahil = owner, Sandeep Rawat = head, Jay + Priya = assistant)~~
+~~- 7 days of attendance (~80% rate)~~
+~~- 2 months of payments (students 1–10 paid this month, 11–18 overdue — for testing)~~
+~~- 2 trials (1 pending, 1 no_response)~~
+~~- 1 upcoming friendly event~~
 
 **NEVER hardcode student/coach data in frontend components. Always fetch from Supabase.**
 
@@ -486,6 +491,40 @@ Student Attendance Report with shareable WhatsApp summary. Tue/Thu/Sat schedule 
 
 ---
 
+## 12.1 — Pre-Launch Fixes (2026-06-28) — COMPLETE
+
+Four production-critical fixes applied before go-live.
+
+**Fix 1 — Join Date nullable:**
+- `Student.join_date` type changed from `string` to `string | null` (DB column was already nullable; only TS types needed updating).
+- `formatDate()` in `utils.ts` updated to accept `null | undefined` → returns `'—'` instead of crashing.
+- `StudentForm.tsx`: default `joinDate: ''` (not today), added `joinDateUnknown: boolean` field + "Don't know exact date" checkbox — when checked, date input disables and `join_date` saves as `null`.
+- `useStudents.ts` `addStudent`: `join_date` default removed; saves `null` if not provided.
+- `StudentProfile.tsx` line 699: `daysSinceJoined` guarded against null → shows `'—'` if no join date.
+- `StudentList.tsx` sort: `new Date(b.join_date ?? 0)` guards against null in join_date sort.
+
+**Fix 2 — Fee Due Date Logic (critical):**
+- Root cause: `paidThisMonth` set was built from `paid_date` within current calendar month — a student paying next month's fee early would erroneously appear as "paid" for the current month, and vice versa.
+- Fix: payment query in both `useStudents.ts` and `StudentProfile.tsx` now uses `.eq('for_cycle', currentCycle)` (e.g. `'2026-06'`) to check if the current billing cycle is paid.
+- Due-soon threshold tightened from 3 days to 2 days (per business requirement).
+- Both copies of `computeFeeStatus` (`useStudents.ts` + `StudentProfile.tsx`) updated identically.
+
+**Fix 3 — App/Scroll Stuck:**
+- Lenis smooth-scroll was not paused during drawer body-lock, causing scroll position desync after drawer close (page appeared "stuck").
+- `useLenis.ts`: Lenis instance exposed as `window.__lenis`.
+- `Drawer.tsx`: calls `lenis.stop()` before body lock and `lenis.start()` in cleanup — smooth scroll correctly resumes after drawer closes.
+- `StudentForm.tsx`: removed unused `format` import (was causing TS error after `TODAY` constant was removed).
+
+**Fix 4 — Payment Invoice PDF + WhatsApp:**
+- New `src/lib/generateInvoice.ts`: receipt-style PDF (148×210mm) using jsPDF — dark header with academy name, hero amount in grass green, student details box, payment details box, next due date, footer with coach name. Dynamically imported.
+- `PaymentForm.tsx` rewritten: `onSave` return type changed to `Promise<Payment>`; after save succeeds, replaces form with a success view (checkmark, amount, date/mode summary); invoice generates in background (non-blocking) — if success: "View Invoice" + "WhatsApp" + "Done" buttons appear; if fail: just "Done".
+- WhatsApp message includes student name, amount, for-month, and public PDF link.
+- Storage bucket `payment-invoices` required — run SQL in section 14.
+- `FeeDashboard.tsx` `handleSavePayment` updated to return `Payment` from `addPayment`.
+- Build: ✓ 2.10s, zero TS errors.
+
+---
+
 ## 13. KNOWN ISSUES
 
 | Issue | Status |
@@ -536,3 +575,43 @@ USING (bucket_id = 'student-photos');
 
 After running the SQL, photo uploads in StudentForm will work. Public URLs follow the pattern:
 `https://<project>.supabase.co/storage/v1/object/public/student-photos/<studentId>/avatar.<ext>`
+
+---
+
+## 14b. SUPABASE STORAGE — payment-invoices bucket
+
+Run this SQL to enable Fix 4 (payment invoice PDF generation):
+
+```sql
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('payment-invoices', 'payment-invoices', true)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE POLICY "Authenticated users can upload invoices"
+ON storage.objects FOR INSERT TO authenticated
+WITH CHECK (bucket_id = 'payment-invoices');
+
+CREATE POLICY "Authenticated users can update invoices"
+ON storage.objects FOR UPDATE TO authenticated
+USING (bucket_id = 'payment-invoices');
+
+CREATE POLICY "Public read for invoices"
+ON storage.objects FOR SELECT TO public
+USING (bucket_id = 'payment-invoices');
+```
+
+Invoice PDFs are stored at `payment-invoices/{paymentId}.pdf` and served via public URL.
+
+---
+
+## 15. PRODUCTION LAUNCH — 2026-06-19
+
+**Status: LIVE — real student data only from this point forward.**
+
+- All 16 build phases complete and verified.
+- Sample/seed data cleared from database (students, attendance, payments, trials, events, event_availability, student_reports).
+- Backup CSVs exported from Supabase before deletion.
+- Coaches table intact: Sahil (owner), Sandeep Rawat (head), Jay (assistant), Priya (assistant).
+- Financial tables untouched: expenses, emergency_fund_transactions, financial_notes, coach_attendance.
+- Academy settings untouched: academy name, tagline, logo, training days config preserved.
+- Storage buckets (student-photos, student-reports) may contain orphaned sample files — harmless, no DB rows reference them.

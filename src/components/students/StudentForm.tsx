@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { format } from 'date-fns'
 import { Camera, AlertCircle } from 'lucide-react'
 import { getAge, getAgeCategory } from '../../lib/ageCategories'
 import { SuccessOverlay } from '../ui/SuccessOverlay'
@@ -32,6 +31,7 @@ interface FormState {
   monthlyFee:       string
   billingCycleDay:  number
   joinDate:         string
+  joinDateUnknown:  boolean
   dob:              string
 }
 
@@ -56,8 +56,6 @@ const STATUS_OPTIONS = [
   { value: 'closed', label: 'Closed' },
 ]
 
-const TODAY = format(new Date(), 'yyyy-MM-dd')
-
 function blankForm(): FormState {
   return {
     name:            '',
@@ -67,7 +65,8 @@ function blankForm(): FormState {
     parentPhone:     '',
     monthlyFee:      '2000',
     billingCycleDay: 1,
-    joinDate:        TODAY,
+    joinDate:        '',
+    joinDateUnknown: false,
     dob:             '',
   }
 }
@@ -83,7 +82,8 @@ function studentToForm(s: StudentWithFee): FormState {
       : '',
     monthlyFee:      String(s.monthly_fee),
     billingCycleDay: s.billing_cycle_day ?? 1,
-    joinDate:        s.join_date,
+    joinDate:        s.join_date ?? '',
+    joinDateUnknown: !s.join_date,
     dob:             s.dob ?? '',
   }
 }
@@ -249,7 +249,7 @@ export function StudentForm({ isOpen, onClose, student, onAdd, onUpdate, onUploa
         parent_phone:     form.parentPhone        ? `+91${form.parentPhone}` : null,
         monthly_fee:      Number(form.monthlyFee),
         billing_cycle_day: form.billingCycleDay,
-        join_date:        form.joinDate,
+        join_date:        (form.joinDateUnknown || !form.joinDate) ? null : form.joinDate,
         dob:              form.dob || null,
       }
 
@@ -476,22 +476,40 @@ export function StudentForm({ isOpen, onClose, student, onAdd, onUpdate, onUploa
             <input
               type="date"
               value={form.joinDate}
+              disabled={form.joinDateUnknown}
               onChange={e => set('joinDate', e.target.value)}
-              className="w-full h-11 px-4 rounded-xl font-body text-sm text-white outline-none transition-all duration-200 focus:shadow-[0_0_0_3px_rgba(0,255,135,0.06)]"
+              className="w-full h-11 px-4 rounded-xl font-body text-sm text-white outline-none transition-all duration-200 focus:shadow-[0_0_0_3px_rgba(0,255,135,0.06)] disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
                 background: 'rgba(255,255,255,0.04)',
                 border: '1px solid rgba(255,255,255,0.08)',
                 colorScheme: 'dark',
               }}
               onFocus={e => {
-                e.currentTarget.style.border = '1px solid rgba(0,255,135,0.35)'
-                e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+                if (!form.joinDateUnknown) {
+                  e.currentTarget.style.border = '1px solid rgba(0,255,135,0.35)'
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+                }
               }}
               onBlur={e => {
                 e.currentTarget.style.border = '1px solid rgba(255,255,255,0.08)'
                 e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
               }}
             />
+            {/* "Don't know" checkbox */}
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={form.joinDateUnknown}
+                onChange={e => {
+                  set('joinDateUnknown', e.target.checked)
+                  if (e.target.checked) set('joinDate', '')
+                }}
+                className="w-3.5 h-3.5 rounded accent-grass cursor-pointer"
+              />
+              <span className="font-body text-[11px] text-slate-500 group-hover:text-slate-400 transition-colors leading-tight">
+                Don't know exact date
+              </span>
+            </label>
           </div>
 
           {/* ── Date of Birth ────────────────────────────────────────────── */}

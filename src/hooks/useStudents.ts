@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { format, startOfMonth, endOfMonth, differenceInDays } from 'date-fns'
+import { format, differenceInDays } from 'date-fns'
 import { supabase } from '../lib/supabase'
 import { ACADEMY_ID } from '../lib/constants'
 import type { Student, BatchType, StudentStatus, FeeStatus } from '../types/index'
@@ -20,7 +20,7 @@ export type StudentInput = {
   parent_phone?: string | null
   monthly_fee?: number
   billing_cycle_day?: number | null
-  join_date?: string
+  join_date?: string | null
   dob?: string | null
   photo_url?: string | null
 }
@@ -66,7 +66,7 @@ function computeFeeStatus(
 
   if (diff > 0)   return { feeStatus: 'overdue',   daysOverdue: diff, nextDueDate: format(dueDate, 'yyyy-MM-dd') }
   if (diff === 0) return { feeStatus: 'due_today',  daysOverdue: 0,   nextDueDate: format(dueDate, 'yyyy-MM-dd') }
-  if (diff >= -3) return { feeStatus: 'due_soon',   daysOverdue: 0,   nextDueDate: format(dueDate, 'yyyy-MM-dd') }
+  if (diff >= -2) return { feeStatus: 'due_soon',   daysOverdue: 0,   nextDueDate: format(dueDate, 'yyyy-MM-dd') }
   return { feeStatus: 'paid', daysOverdue: 0, nextDueDate: format(dueDate, 'yyyy-MM-dd') }
 }
 
@@ -82,9 +82,8 @@ export function useStudents(): UseStudentsReturn {
     setError(null)
 
     try {
-      const today      = new Date()
-      const monthStart = format(startOfMonth(today), 'yyyy-MM-dd')
-      const monthEnd   = format(endOfMonth(today),   'yyyy-MM-dd')
+      const today        = new Date()
+      const currentCycle = format(today, 'yyyy-MM')
 
       const [studentsRes, paidRes] = await Promise.all([
         supabase
@@ -94,8 +93,7 @@ export function useStudents(): UseStudentsReturn {
         supabase
           .from('payments')
           .select('student_id')
-          .gte('paid_date', monthStart)
-          .lte('paid_date', monthEnd),
+          .eq('for_cycle', currentCycle),
       ])
 
       if (studentsRes.error) throw studentsRes.error
@@ -130,7 +128,7 @@ export function useStudents(): UseStudentsReturn {
       parent_phone:       data.parent_phone  ?? null,
       monthly_fee:        data.monthly_fee   ?? 2000,
       billing_cycle_day:  data.billing_cycle_day ?? null,
-      join_date:          data.join_date     ?? format(new Date(), 'yyyy-MM-dd'),
+      join_date:          data.join_date     ?? null,
       dob:                data.dob           ?? null,
       photo_url:          data.photo_url     ?? null,
       academy_id:         ACADEMY_ID,

@@ -44,7 +44,7 @@ interface StudentListProps {
 function sortStudents(list: StudentWithFee[], by: SortKey): StudentWithFee[] {
   return [...list].sort((a, b) => {
     if (by === 'name')       return a.name.localeCompare(b.name)
-    if (by === 'join_date')  return new Date(b.join_date).getTime() - new Date(a.join_date).getTime()
+    if (by === 'join_date')  return new Date(b.join_date ?? 0).getTime() - new Date(a.join_date ?? 0).getTime()
     if (by === 'fee_status') return FEE_STATUS_ORDER[a.feeStatus] - FEE_STATUS_ORDER[b.feeStatus]
     return 0
   })

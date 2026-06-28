@@ -21,10 +21,12 @@ const backdropVariants = {
 }
 
 export function Drawer({ isOpen, onClose, title, children, footer, width = '420px', className }: DrawerProps) {
-  // Lock body scroll while open so the background page doesn't scroll on iOS
+  // Lock body scroll while open; pause Lenis so it doesn't fight with the body-lock
   useEffect(() => {
     if (!isOpen) return
+    const lenis = (window as unknown as Record<string, unknown>).__lenis as { stop: () => void; start: () => void } | undefined
     const scrollY = window.scrollY
+    lenis?.stop()
     document.body.style.position = 'fixed'
     document.body.style.top      = `-${scrollY}px`
     document.body.style.width    = '100%'
@@ -33,6 +35,7 @@ export function Drawer({ isOpen, onClose, title, children, footer, width = '420p
       document.body.style.top      = ''
       document.body.style.width    = ''
       window.scrollTo(0, scrollY)
+      lenis?.start()
     }
   }, [isOpen])
 

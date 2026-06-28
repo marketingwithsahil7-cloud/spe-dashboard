@@ -55,7 +55,7 @@ function computeFeeStatus(
   const dueDate = new Date(year, month, day); const diff = differenceInDays(today, dueDate)
   if (diff > 0)   return { feeStatus: 'overdue',   daysOverdue: diff, nextDueDate: format(dueDate, 'yyyy-MM-dd') }
   if (diff === 0) return { feeStatus: 'due_today',  daysOverdue: 0,   nextDueDate: format(dueDate, 'yyyy-MM-dd') }
-  if (diff >= -3) return { feeStatus: 'due_soon',   daysOverdue: 0,   nextDueDate: format(dueDate, 'yyyy-MM-dd') }
+  if (diff >= -2) return { feeStatus: 'due_soon',   daysOverdue: 0,   nextDueDate: format(dueDate, 'yyyy-MM-dd') }
   return { feeStatus: 'paid', daysOverdue: 0, nextDueDate: format(dueDate, 'yyyy-MM-dd') }
 }
 
@@ -70,12 +70,11 @@ function useStudentProfile(id: string, selectedMonth: Date) {
   const load = useCallback(async () => {
     setState(s => ({ ...s, isLoading: true, error: null }))
     try {
-      const today      = new Date()
-      const monthStart = format(startOfMonth(selectedMonth), 'yyyy-MM-dd')
-      const monthEnd   = format(endOfMonth(selectedMonth),   'yyyy-MM-dd')
-      const yearStart  = format(startOfYear(today), 'yyyy-MM-dd')
-      const curStart   = format(startOfMonth(today), 'yyyy-MM-dd')
-      const curEnd     = format(endOfMonth(today),   'yyyy-MM-dd')
+      const today        = new Date()
+      const monthStart   = format(startOfMonth(selectedMonth), 'yyyy-MM-dd')
+      const monthEnd     = format(endOfMonth(selectedMonth),   'yyyy-MM-dd')
+      const yearStart    = format(startOfYear(today), 'yyyy-MM-dd')
+      const currentCycle = format(today, 'yyyy-MM')
 
       const [stuRes, attRes, payRes, curPaidRes] = await Promise.all([
         supabase.from('students').select('*').eq('id', id).single(),
@@ -84,7 +83,7 @@ function useStudentProfile(id: string, selectedMonth: Date) {
         supabase.from('payments').select('*').eq('student_id', id)
           .gte('paid_date', yearStart).order('paid_date', { ascending: false }),
         supabase.from('payments').select('student_id')
-          .eq('student_id', id).gte('paid_date', curStart).lte('paid_date', curEnd),
+          .eq('student_id', id).eq('for_cycle', currentCycle),
       ])
 
       if (stuRes.error) throw stuRes.error
@@ -696,7 +695,9 @@ export function StudentProfile({ onEdit }: { onEdit: (student: StudentWithFee) =
     )
   }
 
-  const daysSinceJoined = student ? differenceInDays(new Date(), new Date(student.join_date)) : 0
+  const daysSinceJoined = student?.join_date
+    ? differenceInDays(new Date(), new Date(student.join_date))
+    : null
 
   return (
     <div className="flex flex-col gap-5 pb-8">
@@ -772,7 +773,7 @@ export function StudentProfile({ onEdit }: { onEdit: (student: StudentWithFee) =
             </div>
             <QuickStat
               label="Days Since Joined"
-              value={daysSinceJoined}
+              value={daysSinceJoined ?? '—'}
               color="text-ice"
             />
           </div>

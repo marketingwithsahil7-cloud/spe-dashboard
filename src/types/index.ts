@@ -24,7 +24,7 @@ export interface Student {
   billing_cycle_day: number | null
   monthly_fee: number
   status: StudentStatus
-  join_date: string
+  join_date: string | null
   dob: string | null
   academy_id: string
   created_at: string

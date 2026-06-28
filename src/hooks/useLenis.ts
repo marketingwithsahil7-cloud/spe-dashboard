@@ -19,6 +19,8 @@ export function useLenis() {
     })
 
     lenisRef.current = lenis
+    // Expose for Drawer to call stop/start during body lock
+    ;(window as unknown as Record<string, unknown>).__lenis = lenis
 
     // Drive Lenis off GSAP's ticker so ScrollTrigger stays in sync
     const tick = (time: number) => lenis.raf(time * 1000)
@@ -31,6 +33,7 @@ export function useLenis() {
       gsap.ticker.remove(tick)
       lenis.destroy()
       lenisRef.current = null
+      delete (window as unknown as Record<string, unknown>).__lenis
     }
   }, [])
 

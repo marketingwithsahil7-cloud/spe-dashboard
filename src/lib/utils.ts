@@ -5,8 +5,11 @@ export function formatCurrency(amount: number): string {
   return `₹${amount.toLocaleString('en-IN')}`
 }
 
-export function formatDate(date: string | Date): string {
-  return format(new Date(date), 'd MMM yyyy')
+export function formatDate(date: string | Date | null | undefined): string {
+  if (!date) return '—'
+  const d = new Date(date)
+  if (isNaN(d.getTime())) return '—'
+  return format(d, 'd MMM yyyy')
 }
 
 export function formatPhone(phone: string): string {

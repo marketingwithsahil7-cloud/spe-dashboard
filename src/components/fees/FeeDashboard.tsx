@@ -192,8 +192,9 @@ export function FeeDashboard() {
   }
 
   const handleSavePayment = async (data: Parameters<typeof addPayment>[0]) => {
-    await addPayment(data)
+    const payment = await addPayment(data)
     refetchStudents()
+    return payment
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────

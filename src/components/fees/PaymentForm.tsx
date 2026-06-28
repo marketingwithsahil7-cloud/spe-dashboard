@@ -1,7 +1,11 @@
 import { useState, useCallback } from 'react'
 import { format } from 'date-fns'
-import { IndianRupee, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
-import { SuccessOverlay } from '../ui/SuccessOverlay'
+import {
+  IndianRupee, Loader2, CheckCircle2, AlertCircle,
+  FileText, MessageCircle, X,
+} from 'lucide-react'
+import { supabase } from '../../lib/supabase'
+import { useAuthStore } from '../../store/authStore'
 import { Drawer } from '../ui/Drawer'
 import { Avatar } from '../ui/Avatar'
 import { Badge } from '../ui/Badge'
@@ -10,7 +14,8 @@ import { cn } from '../../lib/utils'
 import { PAYMENT_MODES } from '../../lib/constants'
 import type { PaymentInput } from '../../hooks/usePayments'
 import type { StudentWithFee } from '../../hooks/useStudents'
-import type { PaymentMode } from '../../types/index'
+import type { Payment, PaymentMode } from '../../types/index'
+import { getAgeCategory } from '../../lib/ageCategories'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,7 +23,12 @@ interface PaymentFormProps {
   student:   StudentWithFee | null
   isOpen:    boolean
   onClose:   () => void
-  onSave:    (data: PaymentInput) => Promise<void>
+  onSave:    (data: PaymentInput) => Promise<Payment>
+}
+
+interface InvoiceResult {
+  pdfUrl:      string
+  whatsappUrl: string
 }
 
 // Month options: current + 2 previous
@@ -39,9 +49,90 @@ const MODE_LABELS: Record<PaymentMode, string> = {
   online: 'Online',
 }
 
+// ─── Invoice generator (lazy) ─────────────────────────────────────────────────
+
+async function buildInvoice(
+  payment: Payment,
+  student: StudentWithFee,
+  coachName: string,
+): Promise<InvoiceResult> {
+  // Fetch academy name (cheap single-row query)
+  const { data: settings } = await supabase
+    .from('academy_settings')
+    .select('academy_name')
+    .single()
+  const academyName = settings?.academy_name ?? 'Soccer Pro Elite Football Academy'
+
+  const ageLabel = student.dob ? getAgeCategory(student.dob) : null
+
+  // Next due date: compute from billing_cycle_day for NEXT month (since this month is now paid)
+  const today = new Date()
+  const day   = student.billing_cycle_day ?? 1
+  const nm    = today.getMonth() === 11 ? 0 : today.getMonth() + 1
+  const ny    = today.getMonth() === 11 ? today.getFullYear() + 1 : today.getFullYear()
+  const nextDue = format(new Date(ny, nm, day), 'yyyy-MM-dd')
+
+  // Dynamically import to keep jsPDF out of initial bundle
+  const { generateInvoice } = await import('../../lib/generateInvoice')
+
+  const blob = await generateInvoice({
+    paymentId:   payment.id,
+    studentName: student.name,
+    parentName:  student.parent_name,
+    parentPhone: student.parent_phone,
+    batch:       student.batch,
+    ageLabel:    ageLabel ?? null,
+    amount:      payment.amount,
+    paidDate:    payment.paid_date,
+    mode:        payment.mode,
+    forCycle:    payment.for_cycle,
+    nextDueDate: nextDue,
+    coachName,
+    academyName,
+  })
+
+  // Upload to Supabase storage
+  const path = `${payment.id}.pdf`
+  await supabase.storage
+    .from('payment-invoices')
+    .upload(path, blob, { contentType: 'application/pdf', upsert: true })
+
+  const { data: urlData } = supabase.storage
+    .from('payment-invoices')
+    .getPublicUrl(path)
+
+  const pdfUrl = urlData.publicUrl
+
+  const forMonth = payment.for_cycle
+    ? format(new Date(payment.for_cycle + '-01'), 'MMMM yyyy')
+    : 'this month'
+
+  const phone = student.parent_phone?.replace(/\D/g, '') ?? ''
+  const waPhone = phone.startsWith('91') ? phone : `91${phone}`
+
+  const msg = [
+    `Hello ${student.parent_name ?? student.name},`,
+    ``,
+    `✅ Payment received for ${student.name}`,
+    `Amount: ₹${payment.amount.toLocaleString('en-IN')} | ${forMonth}`,
+    ``,
+    `View your receipt here:`,
+    pdfUrl,
+    ``,
+    `Thank you!`,
+    `— ${academyName} ⚽`,
+  ].join('\n')
+
+  const whatsappUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`
+
+  return { pdfUrl, whatsappUrl }
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormProps) {
+  const coach = useAuthStore(s => s.coach)
+
   const [amount,   setAmount]   = useState('')
   const [paidDate, setPaidDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [mode,     setMode]     = useState<PaymentMode>('cash')
@@ -49,7 +140,12 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
   const [note,     setNote]     = useState('')
   const [saving,      setSaving]      = useState(false)
   const [error,       setError]       = useState<string | null>(null)
-  const [showSuccess, setShowSuccess] = useState(false)
+
+  // Post-payment success state
+  const [invoice,        setInvoice]        = useState<InvoiceResult | null>(null)
+  const [invoiceLoading, setInvoiceLoading] = useState(false)
+  const [invoiceError,   setInvoiceError]   = useState<string | null>(null)
+  const [showSuccess,    setShowSuccess]    = useState(false)
 
   // Reset form when a new student is selected
   const handleOpen = useCallback(() => {
@@ -60,11 +156,13 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
       setForCycle(format(new Date(), 'yyyy-MM'))
       setNote('')
       setError(null)
+      setShowSuccess(false)
+      setInvoice(null)
+      setInvoiceError(null)
     }
   }, [student])
 
-  // Trigger reset when drawer opens
-  if (isOpen && !saving && !error && amount === '') {
+  if (isOpen && !saving && !error && !showSuccess && amount === '') {
     handleOpen()
   }
 
@@ -72,6 +170,8 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
     if (saving) return
     setAmount('')
     setError(null)
+    setShowSuccess(false)
+    setInvoice(null)
     onClose()
   }
 
@@ -85,7 +185,7 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
     setSaving(true)
     setError(null)
     try {
-      await onSave({
+      const payment = await onSave({
         student_id: student.id,
         amount:     parsed,
         paid_date:  paidDate,
@@ -94,6 +194,18 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
         note:       note.trim() || null,
       })
       setShowSuccess(true)
+
+      // Generate invoice in background — non-blocking
+      setInvoiceLoading(true)
+      buildInvoice(payment, student, coach?.name ?? 'Coach')
+        .then(result => {
+          setInvoice(result)
+          setInvoiceLoading(false)
+        })
+        .catch(() => {
+          setInvoiceError('Invoice generation failed')
+          setInvoiceLoading(false)
+        })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save payment')
     } finally {
@@ -103,7 +215,44 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
 
   const monthOptions = getMonthOptions()
 
-  const drawerFooter = (
+  // ── Success state footer ───────────────────────────────────────────────────
+  const successFooter = (
+    <div className="flex flex-col gap-2">
+      {invoiceLoading ? (
+        <div className="flex items-center gap-2 justify-center py-2 text-slate-400">
+          <Loader2 size={14} className="animate-spin" />
+          <span className="font-body text-xs">Generating invoice…</span>
+        </div>
+      ) : invoice ? (
+        <div className="flex gap-2">
+          <Button
+            variant="secondary"
+            className="flex-1"
+            icon={<FileText size={14} />}
+            onClick={() => window.open(invoice.pdfUrl, '_blank')}
+          >
+            View Invoice
+          </Button>
+          <Button
+            variant="primary"
+            className="flex-1"
+            icon={<MessageCircle size={14} />}
+            onClick={() => window.open(invoice.whatsappUrl, '_blank')}
+          >
+            WhatsApp
+          </Button>
+        </div>
+      ) : invoiceError ? (
+        <p className="font-body text-xs text-slate-500 text-center">{invoiceError}</p>
+      ) : null}
+      <Button variant="ghost" fullWidth onClick={handleClose} icon={<X size={14} />}>
+        Done
+      </Button>
+    </div>
+  )
+
+  // ── Payment form footer ────────────────────────────────────────────────────
+  const formFooter = (
     <div className="flex gap-3">
       <Button variant="ghost" className="flex-1" onClick={handleClose} disabled={saving}>
         Cancel
@@ -121,10 +270,58 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
   )
 
   return (
-    <>
-    {showSuccess && <SuccessOverlay message="Payment recorded!" onDone={handleClose} />}
-    <Drawer isOpen={isOpen} onClose={handleClose} title="Record Payment" width="400px" footer={drawerFooter}>
-      {!student ? null : (
+    <Drawer
+      isOpen={isOpen}
+      onClose={handleClose}
+      title={showSuccess ? 'Payment Recorded' : 'Record Payment'}
+      width="400px"
+      footer={showSuccess ? successFooter : formFooter}
+    >
+      {!student ? null : showSuccess ? (
+
+        /* ── Success view ─────────────────────────────────────────────────── */
+        <div className="flex flex-col items-center gap-6 py-8 text-center">
+          <div
+            className="w-20 h-20 rounded-full flex items-center justify-center"
+            style={{
+              background: 'rgba(0,255,135,0.1)',
+              border: '2px solid rgba(0,255,135,0.35)',
+              boxShadow: '0 0 40px rgba(0,255,135,0.2)',
+            }}
+          >
+            <CheckCircle2 size={36} className="text-grass" />
+          </div>
+
+          <div>
+            <p className="font-display text-2xl font-bold text-grass">
+              ₹{parseFloat(amount).toLocaleString('en-IN')}
+            </p>
+            <p className="font-body text-sm text-white mt-1">Payment recorded</p>
+            <p className="font-body text-xs text-slate-500 mt-0.5">
+              {student.name} · {forCycle ? format(new Date(forCycle + '-01'), 'MMMM yyyy') : ''}
+            </p>
+          </div>
+
+          {/* Mini details */}
+          <div
+            className="w-full rounded-2xl p-4 flex flex-col gap-2 text-left"
+            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+          >
+            {[
+              ['Date',  format(new Date(paidDate), 'd MMM yyyy')],
+              ['Mode',  MODE_LABELS[mode]],
+            ].map(([label, value]) => (
+              <div key={label} className="flex justify-between items-center">
+                <span className="font-body text-xs text-slate-500">{label}</span>
+                <span className="font-body text-xs font-semibold text-white">{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+      ) : (
+
+        /* ── Payment form ─────────────────────────────────────────────────── */
         <div className="flex flex-col gap-6">
 
           {/* Student info */}
@@ -259,6 +456,5 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
         </div>
       )}
     </Drawer>
-    </>
   )
 }
