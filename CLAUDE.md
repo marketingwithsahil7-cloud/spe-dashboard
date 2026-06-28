@@ -555,6 +555,22 @@ Four production-critical fixes applied before go-live.
 
 ---
 
+## 12.3 — Critical Navigation-Stuck Bug Fix (2026-06-28) — COMPLETE & VERIFIED — commit `b654713`
+
+**Symptom:** After creating a new student (or any successful save that triggers `SuccessOverlay`), the app appeared completely frozen — clicking any BottomNav tab or Sidebar link did nothing. Only a manual page refresh fixed it.
+
+**Primary root cause (`StudentForm.tsx` — Step B):** `StudentForm.useEffect([isOpen, student])` only called `setShowSuccess(false)` inside `if (isOpen)` — i.e., only when the drawer was OPENING, never when it CLOSED. When the GSAP animation completed and `onDone()` → `onClose()` → `setDrawerOpen(false)` fired, React re-rendered with `isOpen=false` and `showSuccess=true`. The `SuccessOverlay` (z-10000, `position:fixed, inset:0`) stayed in the DOM at `opacity:0` (GSAP had faded it), but still intercepted every pointer event. The user saw nothing but couldn't tap anything. Fix: moved `setSaveError(null)` and `setShowSuccess(false)` outside the `if (isOpen)` block so they reset on BOTH open and close.
+
+**Secondary cause (`SuccessOverlay.tsx` — Step A):** `useEffect([onDone])` re-created the GSAP context and killed/restarted the timeline every time `onDone` changed. `handleClose` in `StudentsPage` was not memoized — new reference on every render. `addStudent()` → `load()` causes 2 re-renders → 2 GSAP timeline resets → auto-dismiss timer reset each time. Fix: added `onDoneRef` + sync `useEffect([onDone])` to keep ref current; main GSAP effect uses empty `[]` deps and calls `() => onDoneRef.current()` as `onComplete` — timeline is created once on mount and never cancelled by prop changes. Also added `tl.set(rootRef.current, { pointerEvents: 'none' }, 1.2)` at fade-out start as belt-and-suspenders so even if unmount fails, the invisible overlay doesn't block interactions.
+
+**Tertiary cause (`Drawer.tsx` — Step A):** Drawer backdrop had no `pointer-events: none` during its exit animation. After the drawer closed, the animating backdrop (z-200) remained in DOM for ~200ms and intercepted BottomNav (z-50) taps. Fix: added `pointerEvents: 'none' as const` to `backdropVariants.exit`. Also added a safety-net `useEffect(() => () => { body unlock + lenis.start() }, [])` to guarantee cleanup when Drawer unmounts for any reason.
+
+**Contributing cause (`StudentsPage.tsx` — Step A):** `handleClose` recreated on every render because it wasn't memoized. Fix: wrapped in `useCallback(fn, [])` — stable reference across all re-renders so `SuccessOverlay.onDoneRef` and `Drawer.onClose` never get stale.
+
+Build: ✓ 2.38s, zero TS errors.
+
+---
+
 ## 12.2 — Flexible vs Fixed Monthly Fee (2026-06-28) — COMPLETE & VERIFIED — commit `9f66140`
 
 **Use case:** Students sometimes pay a one-time registration fee (e.g. Rs. 5000) in their first month, then a different regular monthly fee (Rs. 3500) every month after. The `monthly_fee` field alone couldn't express this — coaches needed to know whether to prompt for an amount or auto-fill it.
