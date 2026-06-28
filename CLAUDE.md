@@ -555,6 +555,28 @@ Four production-critical fixes applied before go-live.
 
 ---
 
+## 12.2 — Flexible vs Fixed Monthly Fee (2026-06-28) — COMPLETE & VERIFIED — commit `9f66140`
+
+**Use case:** Students sometimes pay a one-time registration fee (e.g. Rs. 5000) in their first month, then a different regular monthly fee (Rs. 3500) every month after. The `monthly_fee` field alone couldn't express this — coaches needed to know whether to prompt for an amount or auto-fill it.
+
+**DB:** `students.fee_is_fixed BOOLEAN NOT NULL DEFAULT true` — added via `ALTER TABLE students ADD COLUMN IF NOT EXISTS fee_is_fixed BOOLEAN NOT NULL DEFAULT true`. Default `true` so all existing students keep their current auto-fill behavior.
+
+**`Student` type (`types/index.ts`):** `fee_is_fixed: boolean` added to interface. `Database.Tables.students` Insert/Update types pick it up automatically via the existing `Omit<Student, 'id' | 'created_at'>` pattern.
+
+**`useStudents.ts`:** `fee_is_fixed?: boolean` added to `StudentInput`. `addStudent` row includes `fee_is_fixed: data.fee_is_fixed ?? true`. `updateStudent` picks it up via `Partial<StudentInput>`.
+
+**`StudentForm.tsx`:** `feeIsFixed: boolean` added to `FormState` (default `true`). `studentToForm()` reads `s.fee_is_fixed ?? true`. Toggle switch UI placed between Monthly Fee input and Billing Cycle Day slider — custom glass pill toggle (green when ON, grey when OFF, green glow shadow), dynamic helper text explains both states. `fee_is_fixed` included in save payload.
+
+**`StudentCard.tsx`:** Amber "Flexible" badge (`rgba(255,184,0,0.1)` background, amber border/text) rendered inline next to the fee amount when `fee_is_fixed === false`. Invisible for fixed-fee students.
+
+**`PaymentForm.tsx`:** `handleOpen` now conditionally pre-fills amount: `student.fee_is_fixed ? String(student.monthly_fee) : ''`. When `fee_is_fixed === false`: amount field starts empty, placeholder says "Enter amount for this month", amber helper text appears above the field. Fixed-fee students: unchanged behavior (pre-filled, editable).
+
+**Fee status logic:** No changes needed — `computeFeeStatus` only checks if a payment for `for_cycle = currentCycle` exists; it never checks the amount. Flexible-fee students get identical due/overdue tracking as fixed-fee students.
+
+Build: ✓ 2.94s, zero TS errors.
+
+---
+
 ## 14. SUPABASE STORAGE — student-photos bucket
 
 Run this in the Supabase SQL Editor to create the storage bucket and RLS policies:
