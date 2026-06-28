@@ -23,6 +23,7 @@ export interface Student {
   parent_phone: string | null
   billing_cycle_day: number | null
   monthly_fee: number
+  fee_is_fixed: boolean
   status: StudentStatus
   join_date: string | null
   dob: string | null

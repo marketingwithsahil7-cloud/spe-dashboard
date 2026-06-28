@@ -29,6 +29,7 @@ interface FormState {
   parentName:       string
   parentPhone:      string
   monthlyFee:       string
+  feeIsFixed:       boolean
   billingCycleDay:  number
   joinDate:         string
   joinDateUnknown:  boolean
@@ -64,6 +65,7 @@ function blankForm(): FormState {
     parentName:      '',
     parentPhone:     '',
     monthlyFee:      '2000',
+    feeIsFixed:      true,
     billingCycleDay: 1,
     joinDate:        '',
     joinDateUnknown: false,
@@ -81,6 +83,7 @@ function studentToForm(s: StudentWithFee): FormState {
       ? s.parent_phone.replace(/^\+91/, '').replace(/\D/g, '')
       : '',
     monthlyFee:      String(s.monthly_fee),
+    feeIsFixed:      s.fee_is_fixed ?? true,
     billingCycleDay: s.billing_cycle_day ?? 1,
     joinDate:        s.join_date ?? '',
     joinDateUnknown: !s.join_date,
@@ -248,6 +251,7 @@ export function StudentForm({ isOpen, onClose, student, onAdd, onUpdate, onUploa
         parent_name:      form.parentName.trim()  || null,
         parent_phone:     form.parentPhone        ? `+91${form.parentPhone}` : null,
         monthly_fee:      Number(form.monthlyFee),
+        fee_is_fixed:     form.feeIsFixed,
         billing_cycle_day: form.billingCycleDay,
         join_date:        (form.joinDateUnknown || !form.joinDate) ? null : form.joinDate,
         dob:              form.dob || null,
@@ -459,6 +463,37 @@ export function StudentForm({ isOpen, onClose, student, onAdd, onUpdate, onUploa
               {errors.monthlyFee}
             </p>
           )}
+        </div>
+
+        {/* ── Fixed Fee Toggle ──────────────────────────────────────────── */}
+        <div
+          className="flex items-start justify-between gap-4 p-4 rounded-2xl"
+          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          <div className="flex-1">
+            <p className="font-body text-sm font-semibold text-white">Fixed Monthly Fee</p>
+            <p className="font-body text-[11px] text-slate-500 mt-1 leading-relaxed">
+              {form.feeIsFixed
+                ? 'Fee amount is locked — same every month (e.g. Rs. 2000 every month)'
+                : 'Fee amount can vary each month — useful if registration fee differs from regular monthly fee (e.g. Rs. 5000 first month, Rs. 3500 after)'}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={form.feeIsFixed}
+            onClick={() => set('feeIsFixed', !form.feeIsFixed)}
+            className="relative shrink-0 w-11 h-6 rounded-full transition-all duration-200 mt-0.5 focus:outline-none"
+            style={{
+              background: form.feeIsFixed ? '#00FF87' : 'rgba(255,255,255,0.12)',
+              boxShadow: form.feeIsFixed ? '0 0 12px rgba(0,255,135,0.35)' : 'none',
+            }}
+          >
+            <span
+              className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform duration-200"
+              style={{ transform: form.feeIsFixed ? 'translateX(20px)' : 'translateX(0)' }}
+            />
+          </button>
         </div>
 
         {/* ── Billing Cycle Day slider ──────────────────────────────────── */}

@@ -154,7 +154,8 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
   // Reset form when a new student is selected
   const handleOpen = useCallback(() => {
     if (student) {
-      setAmount(String(student.monthly_fee))
+      // Flexible-fee students start with empty amount — coach enters the correct amount each time
+      setAmount(student.fee_is_fixed ? String(student.monthly_fee) : '')
       setPaidDate(format(new Date(), 'yyyy-MM-dd'))
       setMode('cash')
       setForCycle(format(new Date(), 'yyyy-MM'))
@@ -373,6 +374,12 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
             <label className="font-body text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Amount
             </label>
+            {!student.fee_is_fixed && (
+              <p className="font-body text-[11px] text-amber leading-relaxed"
+                 style={{ color: '#FFB800' }}>
+                This student has flexible fees — enter the amount for this specific payment
+              </p>
+            )}
             <div className="relative">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-grass">
                 <IndianRupee size={15} />
@@ -381,7 +388,7 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
                 type="number"
                 value={amount}
                 onChange={e => setAmount(e.target.value)}
-                placeholder="2000"
+                placeholder={student.fee_is_fixed ? String(student.monthly_fee) : 'Enter amount for this month'}
                 className={cn(
                   'w-full pl-9 pr-4 py-3 rounded-xl font-body text-sm font-semibold text-white',
                   'bg-white/[0.04] border border-white/[0.08]',

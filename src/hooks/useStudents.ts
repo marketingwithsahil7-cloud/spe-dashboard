@@ -19,6 +19,7 @@ export type StudentInput = {
   parent_name?: string | null
   parent_phone?: string | null
   monthly_fee?: number
+  fee_is_fixed?: boolean
   billing_cycle_day?: number | null
   join_date?: string | null
   dob?: string | null
@@ -127,6 +128,7 @@ export function useStudents(): UseStudentsReturn {
       parent_name:        data.parent_name   ?? null,
       parent_phone:       data.parent_phone  ?? null,
       monthly_fee:        data.monthly_fee   ?? 2000,
+      fee_is_fixed:       data.fee_is_fixed  ?? true,
       billing_cycle_day:  data.billing_cycle_day ?? null,
       join_date:          data.join_date     ?? null,
       dob:                data.dob           ?? null,

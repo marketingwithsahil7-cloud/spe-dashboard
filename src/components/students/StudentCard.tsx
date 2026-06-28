@@ -224,6 +224,14 @@ export function StudentCard({ student, onEdit, index = 0 }: StudentCardProps) {
               <span className="font-display text-xs font-semibold text-white">
                 {formatCurrency(student.monthly_fee)}<span className="font-body font-normal text-slate-500">/mo</span>
               </span>
+              {!student.fee_is_fixed && (
+                <span
+                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-display font-medium uppercase tracking-wider"
+                  style={{ background: 'rgba(255,184,0,0.1)', border: '1px solid rgba(255,184,0,0.25)', color: '#FFB800' }}
+                >
+                  Flexible
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-1.5">
               <Calendar size={11} className="text-slate-500 shrink-0" />
