@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns'
-import { Star, MessageCircle, ExternalLink, FileText, Loader2, CheckCircle2 } from 'lucide-react'
+import { Star, MessageCircle, ExternalLink, FileText, Loader2, CheckCircle2, Share2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useToast } from '../ui/Toast'
 import { Drawer } from '../ui/Drawer'
 import { Button } from '../ui/Button'
 import { cn } from '../../lib/utils'
+import { sharePdfFile } from '../../lib/sharePdf'
 import type { SkillRatings } from '../../types/index'
 import type { StudentWithFee } from '../../hooks/useStudents'
 import type { GenerateReportParams } from '../../hooks/useReports'
@@ -84,7 +85,7 @@ interface Props {
   isOpen:      boolean
   onClose:     () => void
   student:     StudentWithFee
-  onGenerate:  (params: GenerateReportParams) => Promise<{ pdfUrl: string; whatsappUrl: string }>
+  onGenerate:  (params: GenerateReportParams) => Promise<{ pdfUrl: string; whatsappUrl: string; pdfBlob: Blob }>
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -104,7 +105,7 @@ export function ReportCardForm({ isOpen, onClose, student, onGenerate }: Props) 
   const [attStats,     setAttStats]     = useState<AttStats>({ present: 0, total: 0, percent: 0 })
   const [attLoading,   setAttLoading]   = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
-  const [result,       setResult]       = useState<{ pdfUrl: string; whatsappUrl: string } | null>(null)
+  const [result,       setResult]       = useState<{ pdfUrl: string; whatsappUrl: string; pdfBlob: Blob } | null>(null)
 
   const selectedOpt = monthOptions.find(o => o.value === selectedKey) ?? monthOptions[0]
 
@@ -165,6 +166,28 @@ export function ReportCardForm({ isOpen, onClose, student, onGenerate }: Props) 
     }
   }
 
+  const handleShareReport = async () => {
+    if (!result?.pdfBlob) return
+    const safeName  = student.name.replace(/\s+/g, '_')
+    const safeMonth = selectedOpt.label.replace(/\s+/g, '_')
+    try {
+      const res = await sharePdfFile(
+        result.pdfBlob,
+        `Report_${safeName}_${safeMonth}.pdf`,
+        'Performance Report',
+        `${student.name}'s performance report for ${selectedOpt.label}`,
+      )
+      if (res.method === 'cancelled') return
+      toast.success(
+        res.method === 'native_share'
+          ? 'Shared successfully!'
+          : 'PDF downloaded — attach it manually in WhatsApp',
+      )
+    } catch {
+      toast.error('Share failed — try the WhatsApp link instead')
+    }
+  }
+
   const feeColor = student.feeStatus === 'paid' ? 'text-grass' : 'text-amber'
   const feeLabel = student.feeStatus === 'paid' ? 'PAID'
     : student.feeStatus.replace('_', ' ').toUpperCase()
@@ -177,24 +200,37 @@ export function ReportCardForm({ isOpen, onClose, student, onGenerate }: Props) 
       footer={
         result ? (
           <div className="flex flex-col gap-2">
+            {/* Primary: native share sheet (file attached) — falls back to download on desktop */}
+            <Button
+              variant="primary"
+              fullWidth
+              icon={<Share2 size={15} />}
+              onClick={handleShareReport}
+            >
+              Share PDF
+            </Button>
+            {/* Secondary: link-only WhatsApp fallback for desktop / older browsers */}
             {result.whatsappUrl && (
               <Button
-                variant="primary"
+                variant="secondary"
+                fullWidth
                 icon={<MessageCircle size={15} />}
                 onClick={() => window.open(result.whatsappUrl, '_blank')}
-                className="w-full"
               >
-                Send via WhatsApp
+                WhatsApp Link
               </Button>
             )}
             <Button
               variant="secondary"
+              fullWidth
               icon={<ExternalLink size={15} />}
               onClick={() => window.open(result.pdfUrl, '_blank')}
-              className="w-full"
             >
               View PDF
             </Button>
+            <p className="font-body text-[10px] text-slate-600 text-center">
+              Share PDF opens native share sheet on mobile
+            </p>
             <Button variant="ghost" onClick={onClose} className="w-full">Done</Button>
           </div>
         ) : (

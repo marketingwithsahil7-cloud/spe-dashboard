@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { format } from 'date-fns'
 import {
   IndianRupee, Loader2, CheckCircle2, AlertCircle,
-  FileText, MessageCircle, X,
+  MessageCircle, X, Share2,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
@@ -16,6 +16,8 @@ import type { PaymentInput } from '../../hooks/usePayments'
 import type { StudentWithFee } from '../../hooks/useStudents'
 import type { Payment, PaymentMode } from '../../types/index'
 import { getAgeCategory } from '../../lib/ageCategories'
+import { sharePdfFile } from '../../lib/sharePdf'
+import { useToast } from '../ui/Toast'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,6 +31,7 @@ interface PaymentFormProps {
 interface InvoiceResult {
   pdfUrl:      string
   whatsappUrl: string
+  pdfBlob:     Blob
 }
 
 // Month options: current + 2 previous
@@ -125,13 +128,14 @@ async function buildInvoice(
 
   const whatsappUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`
 
-  return { pdfUrl, whatsappUrl }
+  return { pdfUrl, whatsappUrl, pdfBlob: blob }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormProps) {
   const coach = useAuthStore(s => s.coach)
+  const toast = useToast()
 
   const [amount,   setAmount]   = useState('')
   const [paidDate, setPaidDate] = useState(format(new Date(), 'yyyy-MM-dd'))
@@ -213,6 +217,28 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
     }
   }
 
+  const handleShareInvoice = async () => {
+    if (!invoice?.pdfBlob || !student) return
+    const monthLabel = forCycle
+      ? format(new Date(forCycle + '-01'), 'MMMM_yyyy')
+      : 'Payment'
+    const safeName = student.name.replace(/\s+/g, '_')
+    try {
+      const res = await sharePdfFile(
+        invoice.pdfBlob,
+        `Invoice_${safeName}_${monthLabel}.pdf`,
+        'Payment Invoice',
+        `Payment receipt for ${student.name}`,
+      )
+      if (res.method === 'cancelled') return
+      toast.success(
+        res.method === 'native_share' ? 'Shared successfully!' : 'PDF downloaded',
+      )
+    } catch {
+      toast.error('Share failed — try the WhatsApp link instead')
+    }
+  }
+
   const monthOptions = getMonthOptions()
 
   // ── Success state footer ───────────────────────────────────────────────────
@@ -224,23 +250,28 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
           <span className="font-body text-xs">Generating invoice…</span>
         </div>
       ) : invoice ? (
-        <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            className="flex-1"
-            icon={<FileText size={14} />}
-            onClick={() => window.open(invoice.pdfUrl, '_blank')}
-          >
-            View Invoice
-          </Button>
+        <div className="flex flex-col gap-2">
+          {/* Primary: native share sheet with PDF file — falls back to download on desktop */}
           <Button
             variant="primary"
-            className="flex-1"
+            fullWidth
+            icon={<Share2 size={14} />}
+            onClick={handleShareInvoice}
+          >
+            Share PDF
+          </Button>
+          {/* Secondary: link-only WhatsApp fallback for desktop / older browsers */}
+          <Button
+            variant="secondary"
+            fullWidth
             icon={<MessageCircle size={14} />}
             onClick={() => window.open(invoice.whatsappUrl, '_blank')}
           >
-            WhatsApp
+            WhatsApp Link
           </Button>
+          <p className="font-body text-[10px] text-slate-600 text-center">
+            Share PDF opens native share sheet on mobile
+          </p>
         </div>
       ) : invoiceError ? (
         <p className="font-body text-xs text-slate-500 text-center">{invoiceError}</p>

@@ -22,7 +22,7 @@ export interface UseReportsReturn {
   reports:         StudentReport[]
   isLoading:       boolean
   error:           string | null
-  generateAndSave: (params: GenerateReportParams) => Promise<{ pdfUrl: string; whatsappUrl: string }>
+  generateAndSave: (params: GenerateReportParams) => Promise<{ pdfUrl: string; whatsappUrl: string; pdfBlob: Blob }>
   refetch:         () => void
 }
 
@@ -56,7 +56,7 @@ export function useReports(studentId: string): UseReportsReturn {
 
   useEffect(() => { load() }, [load])
 
-  const generateAndSave = useCallback(async (params: GenerateReportParams): Promise<{ pdfUrl: string; whatsappUrl: string }> => {
+  const generateAndSave = useCallback(async (params: GenerateReportParams): Promise<{ pdfUrl: string; whatsappUrl: string; pdfBlob: Blob }> => {
     const {
       student, attendancePresent, attendanceTotal, attendancePercent,
       skillRatings, coachRemarks, month, year,
@@ -141,7 +141,7 @@ export function useReports(studentId: string): UseReportsReturn {
       ? `https://wa.me/${phone}?text=${encodeURIComponent(waMessage)}`
       : ''
 
-    return { pdfUrl, whatsappUrl }
+    return { pdfUrl, whatsappUrl, pdfBlob: blob }
   }, [coach, user, settings, load])
 
   return { reports, isLoading, error, generateAndSave, refetch: load }
