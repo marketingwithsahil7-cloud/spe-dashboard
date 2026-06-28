@@ -491,7 +491,7 @@ Student Attendance Report with shareable WhatsApp summary. Tue/Thu/Sat schedule 
 
 ---
 
-## 12.1 — Pre-Launch Fixes (2026-06-28) — COMPLETE
+## 12.1 — Pre-Launch Fixes (2026-06-28) — COMPLETE & VERIFIED
 
 Four production-critical fixes applied before go-live.
 
@@ -521,7 +521,7 @@ Four production-critical fixes applied before go-live.
 - WhatsApp message includes student name, amount, for-month, and public PDF link.
 - Storage bucket `payment-invoices` required — run SQL in section 14.
 - `FeeDashboard.tsx` `handleSavePayment` updated to return `Payment` from `addPayment`.
-- Build: ✓ 2.10s, zero TS errors.
+- Build: ✓ 2.10s, zero TS errors. Pushed to GitHub: commit `0496cf9`.
 
 ---
 
