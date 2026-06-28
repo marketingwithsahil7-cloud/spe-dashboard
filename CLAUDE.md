@@ -523,6 +523,12 @@ Four production-critical fixes applied before go-live.
 - `FeeDashboard.tsx` `handleSavePayment` updated to return `Payment` from `addPayment`.
 - Build: ✓ 2.10s, zero TS errors. Pushed to GitHub: commit `0496cf9`.
 
+**Fix 5 — Invoice PDF rendering bugs (2026-06-28) — commit `79bd55c`:**
+- **Rupee symbol broken:** `₹` (U+20B9) is outside jsPDF's built-in Helvetica Latin-1 charset → glyph renders as superscript junk. Replaced all instances with `Rs.` prefix (`Rs. 13,000`). Single centered `text()` call for the hero amount fixes the "superscript 1" misalignment caused by multi-call positioning drift.
+- **Emoji broken:** `⚽` and `✓` are also outside Latin-1 → render as garbage bytes (`&½` etc). Removed all emoji from PDF. PAID badge uses plain "PAID" text in a green pill. Footer is "Thank you for your payment!" — no emoji.
+- **Layout rebuild:** Replaced hardcoded y positions with a calculated yPos variable. Sections: header band 44mm → amount+label 28mm → player card 41mm → payment card 34mm → next-due bar 12mm → footer at ~200mm. All verified to fit within 210mm with clear breathing gaps between sections.
+- **Dual gray contrast levels:** `GR [148,163,184]` for labels on dark card backgrounds; `SGR [80,96,115]` for sub-text on white body — appropriate contrast for each surface.
+
 ---
 
 ## 13. KNOWN ISSUES
