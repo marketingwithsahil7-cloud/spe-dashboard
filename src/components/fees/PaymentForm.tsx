@@ -254,11 +254,11 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
     }
   }
 
-  const handleToggleHalfMonth = () => {
-    const next = !isHalfMonth
-    setIsHalfMonth(next)
+  const handleSetAmountType = (half: boolean) => {
+    if (half === isHalfMonth) return
+    setIsHalfMonth(half)
     if (student?.fee_is_fixed) {
-      setAmount(next ? String(Math.round(student.monthly_fee / 2)) : String(student.monthly_fee))
+      setAmount(half ? String(Math.round(student.monthly_fee / 2)) : String(student.monthly_fee))
     }
   }
 
@@ -420,35 +420,41 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
               />
             </div>
 
-            {/* Half month toggle */}
-            <div className="flex items-center justify-between mt-1">
-              <button
-                type="button"
-                onClick={handleToggleHalfMonth}
-                className="flex items-center gap-2 group"
-              >
-                <span
-                  className={cn(
-                    'w-9 h-5 rounded-full relative transition-colors duration-150 shrink-0',
-                    isHalfMonth ? 'bg-grass' : 'bg-white/10',
-                  )}
-                >
-                  <span
+            {isHalfMonth && (
+              <p className="font-body text-[11px] text-amber" style={{ color: '#FFB800' }}>
+                Half month fee applied
+              </p>
+            )}
+          </div>
+
+          {/* Amount type */}
+          <div className="flex flex-col gap-2">
+            <label className="font-body text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              Amount Type
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { half: false, label: 'Full Month' },
+                { half: true,  label: 'Half Month' },
+              ] as const).map(opt => {
+                const active = isHalfMonth === opt.half
+                return (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => handleSetAmountType(opt.half)}
                     className={cn(
-                      'absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform duration-150',
-                      isHalfMonth ? 'translate-x-4' : 'translate-x-0.5',
+                      'py-2.5 rounded-xl font-body text-sm font-semibold transition-all duration-150',
+                      active
+                        ? 'text-pitch bg-grass shadow-[0_0_12px_rgba(0,255,135,0.25)]'
+                        : 'text-slate-400 hover:text-white',
                     )}
-                  />
-                </span>
-                <span className="font-body text-xs font-semibold text-slate-400 group-hover:text-white transition-colors">
-                  Half Month
-                </span>
-              </button>
-              {isHalfMonth && (
-                <span className="font-body text-[10px] text-amber" style={{ color: '#FFB800' }}>
-                  Half month fee
-                </span>
-              )}
+                    style={!active ? { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' } : undefined}
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
             </div>
           </div>
 
