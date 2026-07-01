@@ -22,10 +22,14 @@ import { useToast } from '../ui/Toast'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface PaymentFormProps {
-  student:   StudentWithFee | null
-  isOpen:    boolean
-  onClose:   () => void
-  onSave:    (data: PaymentInput) => Promise<Payment>
+  student:      StudentWithFee | null
+  isOpen:       boolean
+  onClose:      () => void
+  onSave:       (data: PaymentInput) => Promise<Payment>
+  // Billing cycle ('yyyy-MM') the coach was viewing on the Fees page when they
+  // opened this drawer — pre-selects "For Month" so recording a missed past
+  // month's fee doesn't require an extra manual dropdown change every time.
+  defaultMonth?: string
 }
 
 interface InvoiceResult {
@@ -34,9 +38,10 @@ interface InvoiceResult {
   pdfBlob:     Blob
 }
 
-// Month options: current + 2 previous
-function getMonthOptions() {
-  return Array.from({ length: 3 }, (_, i) => {
+// Month options: last 6 months, plus defaultMonth if it falls outside that window
+// (a coach auditing an old month should still find it pre-selected in the list).
+function getMonthOptions(defaultMonth?: string) {
+  const opts = Array.from({ length: 6 }, (_, i) => {
     const d = new Date()
     d.setMonth(d.getMonth() - i)
     return {
@@ -44,6 +49,11 @@ function getMonthOptions() {
       label: format(d, 'MMMM yyyy'),
     }
   })
+  if (defaultMonth && !opts.some(o => o.value === defaultMonth)) {
+    opts.push({ value: defaultMonth, label: format(new Date(defaultMonth + '-01T12:00:00'), 'MMMM yyyy') })
+    opts.sort((a, b) => b.value.localeCompare(a.value))
+  }
+  return opts
 }
 
 const MODE_LABELS: Record<PaymentMode, string> = {
@@ -133,15 +143,16 @@ async function buildInvoice(
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormProps) {
+export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: PaymentFormProps) {
   const coach = useAuthStore(s => s.coach)
   const toast = useToast()
 
-  const [amount,   setAmount]   = useState('')
-  const [paidDate, setPaidDate] = useState(format(new Date(), 'yyyy-MM-dd'))
-  const [mode,     setMode]     = useState<PaymentMode>('cash')
-  const [forCycle, setForCycle] = useState(format(new Date(), 'yyyy-MM'))
-  const [note,     setNote]     = useState('')
+  const [amount,      setAmount]      = useState('')
+  const [paidDate,    setPaidDate]    = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [mode,        setMode]        = useState<PaymentMode>('cash')
+  const [forCycle,    setForCycle]    = useState(defaultMonth ?? format(new Date(), 'yyyy-MM'))
+  const [note,        setNote]        = useState('')
+  const [isHalfMonth, setIsHalfMonth] = useState(false)
   const [saving,      setSaving]      = useState(false)
   const [error,       setError]       = useState<string | null>(null)
 
@@ -163,15 +174,16 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
       setAmount(student.fee_is_fixed ? String(student.monthly_fee) : '')
       setPaidDate(format(new Date(), 'yyyy-MM-dd'))
       setMode('cash')
-      setForCycle(format(new Date(), 'yyyy-MM'))
+      setForCycle(defaultMonth ?? format(new Date(), 'yyyy-MM'))
       setNote('')
+      setIsHalfMonth(false)
       setError(null)
       setShowSuccess(false)
       setInvoice(null)
       setInvoiceError(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, student?.id])
+  }, [isOpen, student?.id, defaultMonth])
 
   const handleClose = () => {
     if (saving) return
@@ -242,7 +254,15 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
     }
   }
 
-  const monthOptions = getMonthOptions()
+  const handleToggleHalfMonth = () => {
+    const next = !isHalfMonth
+    setIsHalfMonth(next)
+    if (student?.fee_is_fixed) {
+      setAmount(next ? String(Math.round(student.monthly_fee / 2)) : String(student.monthly_fee))
+    }
+  }
+
+  const monthOptions = getMonthOptions(defaultMonth)
 
   // ── Success state footer ───────────────────────────────────────────────────
   const successFooter = (
@@ -399,6 +419,37 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
                 )}
               />
             </div>
+
+            {/* Half month toggle */}
+            <div className="flex items-center justify-between mt-1">
+              <button
+                type="button"
+                onClick={handleToggleHalfMonth}
+                className="flex items-center gap-2 group"
+              >
+                <span
+                  className={cn(
+                    'w-9 h-5 rounded-full relative transition-colors duration-150 shrink-0',
+                    isHalfMonth ? 'bg-grass' : 'bg-white/10',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform duration-150',
+                      isHalfMonth ? 'translate-x-4' : 'translate-x-0.5',
+                    )}
+                  />
+                </span>
+                <span className="font-body text-xs font-semibold text-slate-400 group-hover:text-white transition-colors">
+                  Half Month
+                </span>
+              </button>
+              {isHalfMonth && (
+                <span className="font-body text-[10px] text-amber" style={{ color: '#FFB800' }}>
+                  Half month fee
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Payment mode */}
@@ -467,21 +518,26 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
 
           {/* Note */}
           <div className="flex flex-col gap-2">
-            <label className="font-body text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Note <span className="text-slate-600 normal-case font-normal">(optional)</span>
+            <label className="font-body text-sm font-semibold text-white">
+              Note / Reason <span className="text-slate-500 text-xs normal-case font-normal">(optional, but recommended)</span>
             </label>
             <textarea
               value={note}
               onChange={e => setNote(e.target.value)}
-              placeholder="e.g. Paid in two instalments"
-              rows={2}
+              placeholder={
+                'e.g. Student was on vacation this month\ne.g. Half month — joined mid-month\ne.g. Discount applied for sibling'
+              }
+              rows={3}
               className={cn(
                 'w-full px-4 py-3 rounded-xl font-body text-sm text-white resize-none',
-                'bg-white/[0.04] border border-white/[0.08]',
+                'bg-white/[0.04] border border-white/[0.1]',
                 'focus:outline-none focus:ring-2 focus:ring-grass/40 focus:border-grass/40',
-                'transition-colors placeholder:text-slate-600',
+                'transition-colors placeholder:text-slate-600 placeholder:leading-relaxed',
               )}
             />
+            <p className="font-body text-[10px] text-slate-600">
+              Visible in this student's payment history — helps explain any unusual amount.
+            </p>
           </div>
 
           {/* Error */}

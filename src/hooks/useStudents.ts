@@ -34,6 +34,10 @@ export type StudentInput = {
 export interface UseStudentsOptions {
   // Fetch only the columns the Fees page needs — skips photo_url/join_date/academy_id.
   lite?: boolean
+  // Billing cycle to compute fee status against, e.g. '2026-05'. Defaults to the
+  // current calendar month. Passing a past month switches computeFeeStatus into
+  // audit mode (paid/missing only — due_soon/due_today never apply to past months).
+  month?: string
 }
 
 export interface UseStudentsReturn {
@@ -57,26 +61,34 @@ export interface UseStudentsReturn {
 
 export function computeFeeStatus(
   student: Student,
-  paidThisMonth: Set<string>,
+  paidForCycle: Set<string>,
   today: Date,
+  targetCycle: string,
 ): { feeStatus: FeeStatus; daysOverdue: number; nextDueDate: string } {
   // Non-active students don't have fee cycles
   if (student.status !== 'active') {
     return { feeStatus: 'paid', daysOverdue: 0, nextDueDate: '' }
   }
 
-  const day   = student.billing_cycle_day ?? 1
-  const year  = today.getFullYear()
-  const month = today.getMonth()
+  const day = student.billing_cycle_day ?? 1
+  const [ty, tm] = targetCycle.split('-').map(Number) // tm is 1-indexed
+  const isCurrentMonth = targetCycle === format(today, 'yyyy-MM')
 
-  if (paidThisMonth.has(student.id)) {
-    const nm = month === 11 ? 0 : month + 1
-    const ny = month === 11 ? year + 1 : year
-    return { feeStatus: 'paid', daysOverdue: 0, nextDueDate: format(new Date(ny, nm, day), 'yyyy-MM-dd') }
+  if (paidForCycle.has(student.id)) {
+    const nm = tm === 12 ? 1 : tm + 1
+    const ny = tm === 12 ? ty + 1 : ty
+    return { feeStatus: 'paid', daysOverdue: 0, nextDueDate: format(new Date(ny, nm - 1, day), 'yyyy-MM-dd') }
   }
 
-  const dueDate = new Date(year, month, day)
-  const diff    = differenceInDays(today, dueDate)
+  const dueDate = new Date(ty, tm - 1, day)
+
+  // Past months never get due_soon/due_today treatment — either paid or missing.
+  if (!isCurrentMonth) {
+    const diff = Math.max(differenceInDays(today, dueDate), 0)
+    return { feeStatus: 'overdue', daysOverdue: diff, nextDueDate: format(dueDate, 'yyyy-MM-dd') }
+  }
+
+  const diff = differenceInDays(today, dueDate)
 
   if (diff > 0)   return { feeStatus: 'overdue',   daysOverdue: diff, nextDueDate: format(dueDate, 'yyyy-MM-dd') }
   if (diff === 0) return { feeStatus: 'due_today',  daysOverdue: 0,   nextDueDate: format(dueDate, 'yyyy-MM-dd') }
@@ -87,7 +99,8 @@ export function computeFeeStatus(
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useStudents(options?: UseStudentsOptions): UseStudentsReturn {
-  const lite = options?.lite ?? false
+  const lite  = options?.lite ?? false
+  const month = options?.month
 
   const [students, setStudents] = useState<StudentWithFee[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -102,8 +115,8 @@ export function useStudents(options?: UseStudentsOptions): UseStudentsReturn {
     setError(null)
 
     try {
-      const today        = new Date()
-      const currentCycle = format(today, 'yyyy-MM')
+      const today       = new Date()
+      const targetCycle = month ?? format(today, 'yyyy-MM')
 
       const studentsQuery = lite
         ? supabase.from('students').select(LITE_COLUMNS).order('name', { ascending: true })
@@ -114,7 +127,7 @@ export function useStudents(options?: UseStudentsOptions): UseStudentsReturn {
         supabase
           .from('payments')
           .select('student_id')
-          .eq('for_cycle', currentCycle),
+          .eq('for_cycle', targetCycle),
       ])
 
       if (studentsRes.error) throw studentsRes.error
@@ -125,7 +138,7 @@ export function useStudents(options?: UseStudentsOptions): UseStudentsReturn {
 
       const enriched: StudentWithFee[] = raw.map(s => ({
         ...s,
-        ...computeFeeStatus(s, paidIds, today),
+        ...computeFeeStatus(s, paidIds, today, targetCycle),
       }))
 
       setStudents(enriched)
@@ -135,22 +148,22 @@ export function useStudents(options?: UseStudentsOptions): UseStudentsReturn {
     } finally {
       setIsLoading(false)
     }
-  }, [lite])
+  }, [lite, month])
 
   useEffect(() => { load() }, [load])
 
   // Flips a single student's cached fee status to 'paid' right after a payment is
-  // recorded for the current billing cycle — avoids a full students+payments refetch
-  // (and the resulting re-render/re-animation of every other fee card).
+  // recorded for the cycle currently being viewed — avoids a full students+payments
+  // refetch (and the resulting re-render/re-animation of every other fee card).
   const applyPaymentOptimistic = useCallback((studentId: string, forCycle: string | null | undefined) => {
-    const currentCycle = format(new Date(), 'yyyy-MM')
-    if (forCycle !== currentCycle) return // payment wasn't for the active cycle — status unchanged
+    const targetCycle = month ?? format(new Date(), 'yyyy-MM')
+    if (forCycle !== targetCycle) return // payment wasn't for the viewed cycle — status unchanged
 
     setStudents(prev => prev.map(s => {
       if (s.id !== studentId) return s
-      return { ...s, ...computeFeeStatus(s, new Set([studentId]), new Date()) }
+      return { ...s, ...computeFeeStatus(s, new Set([studentId]), new Date(), targetCycle) }
     }))
-  }, [])
+  }, [month])
 
   // ── Mutations ───────────────────────────────────────────────────────────────
 

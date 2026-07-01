@@ -10,8 +10,13 @@ import { usePermissions } from '../../hooks/usePermissions'
 import type { StudentWithFee } from '../../hooks/useStudents'
 
 interface FeeCardProps {
-  student:     StudentWithFee
-  onRecordPay: (student: StudentWithFee) => void
+  student:        StudentWithFee
+  onRecordPay:    (student: StudentWithFee) => void
+  // Which billing cycle is currently being viewed on the Fees page — lets the
+  // card distinguish a live "overdue" fee from an audited past month with no
+  // payment record at all (very different meanings, same underlying feeStatus).
+  monthLabel?:     string
+  isCurrentMonth?: boolean
 }
 
 // ─── Remind button config based on fee scenario ───────────────────────────────
@@ -40,7 +45,7 @@ function getRemindConfig(feeStatus: string, daysOverdue: number): {
 
 // React.memo — with 20+ cards on screen, this skips re-rendering the ones whose
 // student/onRecordPay props haven't changed (e.g. after a single optimistic payment update).
-export const FeeCard = memo(function FeeCard({ student, onRecordPay }: FeeCardProps) {
+export const FeeCard = memo(function FeeCard({ student, onRecordPay, monthLabel, isCurrentMonth = true }: FeeCardProps) {
   const { canRecordPayment } = usePermissions()
   const cardRef = useRef<HTMLDivElement>(null)
 
@@ -49,8 +54,13 @@ export const FeeCard = memo(function FeeCard({ student, onRecordPay }: FeeCardPr
   const isDueToday = feeStatus === 'due_today'
   const isDueSoon  = feeStatus === 'due_soon'
   const isPaid     = feeStatus === 'paid'
+  // Past-month audit view: "overdue" means "no payment record found", not a live
+  // escalating-days-overdue situation — softer copy, no urgency language/pulsing.
+  const isMissingRecord = isOverdue && !isCurrentMonth
 
-  const remindConfig = getRemindConfig(feeStatus, daysOverdue)
+  const remindConfig = isMissingRecord
+    ? { label: 'Remind', variant: 'ghost' as const, pulse: false }
+    : getRemindConfig(feeStatus, daysOverdue)
 
   const waURL = student.parent_phone
     ? getWhatsAppURL(
@@ -126,7 +136,12 @@ export const FeeCard = memo(function FeeCard({ student, onRecordPay }: FeeCardPr
             {formatCurrency(monthly_fee)}
           </p>
           <div className="mt-1">
-            {isOverdue ? (
+            {isMissingRecord ? (
+              <p className="font-body text-[10px] text-danger/80 flex items-center justify-end gap-0.5">
+                <Clock size={10} />
+                no record
+              </p>
+            ) : isOverdue ? (
               <p className="font-body text-[10px] text-danger/80 flex items-center justify-end gap-0.5">
                 <Clock size={10} />
                 {daysOverdue}d overdue
@@ -146,7 +161,11 @@ export const FeeCard = memo(function FeeCard({ student, onRecordPay }: FeeCardPr
 
       {/* Badge row */}
       <div className="flex items-center gap-2">
-        <Badge variant={feeStatus} />
+        {isMissingRecord ? (
+          <Badge variant="overdue" label={`No record — ${monthLabel ?? 'this month'}`} />
+        ) : (
+          <Badge variant={feeStatus} />
+        )}
         {student.status === 'trial' && (
           <Badge variant="trial" label="Trial Student" />
         )}

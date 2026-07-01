@@ -10,6 +10,7 @@ import { usePayments } from '../../hooks/usePayments'
 import { FeeCard } from './FeeCard'
 import { PaymentForm } from './PaymentForm'
 import { PaymentList, PaymentListSkeleton, PaymentEmptyState } from './PaymentHistory'
+import { MonthSelector } from './MonthSelector'
 import { Skeleton } from '../ui/Skeleton'
 import { cn, formatCurrency } from '../../lib/utils'
 import type { StudentWithFee } from '../../hooks/useStudents'
@@ -83,13 +84,19 @@ function FeeStat({ icon, label, value, sub, colorClass }: {
 // ─── Student group section ────────────────────────────────────────────────────
 
 function StatusSection({
-  status, students, onRecordPay,
+  status, students, onRecordPay, monthLabel, isCurrentMonth,
 }: {
-  status:      FeeStatus
-  students:    StudentWithFee[]
-  onRecordPay: (s: StudentWithFee) => void
+  status:         FeeStatus
+  students:       StudentWithFee[]
+  onRecordPay:    (s: StudentWithFee) => void
+  monthLabel:     string
+  isCurrentMonth: boolean
 }) {
-  const cfg = STATUS_CONFIG[status]
+  // In a past-month view, the "overdue" bucket really means "no payment record
+  // found for that month" — label the section accordingly instead of "Overdue".
+  const cfg = status === 'overdue' && !isCurrentMonth
+    ? { ...STATUS_CONFIG.overdue, label: 'No Record' }
+    : STATUS_CONFIG[status]
   if (!students.length) return null
 
   return (
@@ -112,6 +119,8 @@ function StatusSection({
             key={s.id}
             student={s}
             onRecordPay={onRecordPay}
+            monthLabel={monthLabel}
+            isCurrentMonth={isCurrentMonth}
           />
         ))}
       </div>
@@ -125,9 +134,14 @@ export function FeeDashboard() {
   const statsRef    = useRef<HTMLDivElement>(null)
   const contentRef  = useRef<HTMLDivElement>(null)
 
+  // Billing cycle being viewed — defaults to the current month, navigable via MonthSelector.
+  const [selectedMonth, setSelectedMonth] = useState(() => format(new Date(), 'yyyy-MM'))
+  const isCurrentMonth = selectedMonth === format(new Date(), 'yyyy-MM')
+  const monthLabel = format(new Date(selectedMonth + '-01T12:00:00'), 'MMMM yyyy')
+
   // lite: true — Fees page only needs fee-relevant columns, not photo_url/join_date/etc.
-  const { students, isLoading: studentsLoading, error: studentsError, applyPaymentOptimistic } = useStudents({ lite: true })
-  const { payments, isLoading: paymentsLoading, error: paymentsError, addPayment } = usePayments()
+  const { students, isLoading: studentsLoading, error: studentsError, applyPaymentOptimistic } = useStudents({ lite: true, month: selectedMonth })
+  const { payments, isLoading: paymentsLoading, error: paymentsError, addPayment } = usePayments(selectedMonth)
 
   const [activeTab,      setActiveTab]      = useState<TabView>('action')
   const [searchQuery,    setSearchQuery]    = useState('')
@@ -158,7 +172,7 @@ export function FeeDashboard() {
         { opacity: 1, y: 0, scale: 1, duration: 0.5, stagger: 0.06, ease: 'back.out(1.7)', clearProps: 'all' },
       )
     }
-  }, [isLoading, activeTab])
+  }, [isLoading, activeTab, selectedMonth])
 
   // Computed stats
   const activeStudents = useMemo(() =>
@@ -214,6 +228,9 @@ export function FeeDashboard() {
     <>
       <div className="space-y-6">
 
+        {/* ── Month selector ──────────────────────────────────────────────────── */}
+        <MonthSelector value={selectedMonth} onChange={setSelectedMonth} />
+
         {/* ── Summary stats ───────────────────────────────────────────────────── */}
         <div ref={statsRef} className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {isLoading ? (
@@ -237,14 +254,14 @@ export function FeeDashboard() {
                 icon={<IndianRupee size={14} />}
                 label="Pending Amount"
                 value={formatCurrency(pendingAmount)}
-                sub="this month"
+                sub={monthLabel}
                 colorClass={pendingAmount > 0 ? 'text-amber' : 'text-grass'}
               />
               <FeeStat
                 icon={<TrendingUp size={14} />}
                 label="Collected"
                 value={formatCurrency(collectedAmount)}
-                sub={format(new Date(), 'MMMM yyyy')}
+                sub={monthLabel}
                 colorClass="text-grass"
               />
               <FeeStat
@@ -314,19 +331,19 @@ export function FeeDashboard() {
           ) : activeTab === 'action' ? (
             // Overdue + Due Today + Due Soon grouped sections
             overdueStudents.length + dueTodayStudents.length + dueSoonStudents.length === 0 ? (
-              <AllPaidState />
+              <AllPaidState monthLabel={monthLabel} isCurrentMonth={isCurrentMonth} />
             ) : (
               <>
-                <StatusSection status="overdue"    students={filterStudents(overdueStudents)}  onRecordPay={handleRecordPay} />
-                <StatusSection status="due_today"  students={filterStudents(dueTodayStudents)} onRecordPay={handleRecordPay} />
-                <StatusSection status="due_soon"   students={filterStudents(dueSoonStudents)}  onRecordPay={handleRecordPay} />
+                <StatusSection status="overdue"    students={filterStudents(overdueStudents)}  onRecordPay={handleRecordPay} monthLabel={monthLabel} isCurrentMonth={isCurrentMonth} />
+                <StatusSection status="due_today"  students={filterStudents(dueTodayStudents)} onRecordPay={handleRecordPay} monthLabel={monthLabel} isCurrentMonth={isCurrentMonth} />
+                <StatusSection status="due_soon"   students={filterStudents(dueSoonStudents)}  onRecordPay={handleRecordPay} monthLabel={monthLabel} isCurrentMonth={isCurrentMonth} />
               </>
             )
           ) : activeTab === 'paid' ? (
             // Paid students
             paidStudents.length === 0 ? (
               <div className="glass rounded-2xl p-10 text-center">
-                <p className="font-body text-sm text-slate-500">No students have paid yet this month</p>
+                <p className="font-body text-sm text-slate-500">No students have paid for {monthLabel} yet</p>
               </div>
             ) : (
               <div data-section>
@@ -336,6 +353,8 @@ export function FeeDashboard() {
                       key={s.id}
                       student={s}
                       onRecordPay={handleRecordPay}
+                      monthLabel={monthLabel}
+                      isCurrentMonth={isCurrentMonth}
                     />
                   ))}
                 </div>
@@ -345,7 +364,7 @@ export function FeeDashboard() {
             // Payment history
             <div data-card-row className="glass rounded-2xl p-5">
               <h3 className="font-display text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">
-                Payments — {format(new Date(), 'MMMM yyyy')}
+                Payments — {monthLabel}
               </h3>
               {paymentsLoading ? (
                 <PaymentListSkeleton />
@@ -365,6 +384,7 @@ export function FeeDashboard() {
         isOpen={formOpen}
         onClose={() => { setFormOpen(false); setSelectedStudent(null) }}
         onSave={handleSavePayment}
+        defaultMonth={selectedMonth}
       />
     </>
   )
@@ -404,7 +424,7 @@ function LoadingSkeleton() {
 
 // ─── All-paid celebration state ───────────────────────────────────────────────
 
-function AllPaidState() {
+function AllPaidState({ monthLabel, isCurrentMonth }: { monthLabel: string; isCurrentMonth: boolean }) {
   return (
     <div className="glass rounded-2xl p-12 text-center flex flex-col items-center gap-3">
       <div className="w-14 h-14 rounded-full flex items-center justify-center"
@@ -412,7 +432,11 @@ function AllPaidState() {
         <CheckCircle2 size={28} className="text-grass" />
       </div>
       <p className="font-display text-xl text-grass uppercase tracking-widest">All caught up!</p>
-      <p className="font-body text-sm text-slate-400">No pending or overdue fees this month.</p>
+      <p className="font-body text-sm text-slate-400">
+        {isCurrentMonth
+          ? 'No pending or overdue fees this month.'
+          : `Every active student has a payment record for ${monthLabel}.`}
+      </p>
     </div>
   )
 }

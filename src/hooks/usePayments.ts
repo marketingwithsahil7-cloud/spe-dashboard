@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { format, startOfMonth, endOfMonth } from 'date-fns'
+import { format } from 'date-fns'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../store/authStore'
 import type { Payment, PaymentMode } from '../types/index'
@@ -36,8 +36,13 @@ export async function fetchStudentPayments(studentId: string): Promise<Payment[]
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-export function usePayments(): UsePaymentsReturn {
+// month: billing cycle to load, e.g. '2026-05'. Defaults to the current calendar
+// month. Payments are matched by for_cycle (not paid_date) so a payment recorded
+// late/early for a given month's fee still shows up under that month — same rule
+// fee-status computation in useStudents follows.
+export function usePayments(month?: string): UsePaymentsReturn {
   const userId = useAuthStore(s => s.user?.id ?? null)
+  const targetCycle = month ?? format(new Date(), 'yyyy-MM')
 
   const [payments,  setPayments]  = useState<Payment[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -51,15 +56,10 @@ export function usePayments(): UsePaymentsReturn {
     if (!hasLoadedOnce.current) setIsLoading(true)
     setError(null)
     try {
-      const today = new Date()
-      const start = format(startOfMonth(today), 'yyyy-MM-dd')
-      const end   = format(endOfMonth(today),   'yyyy-MM-dd')
-
       const { data, error: err } = await supabase
         .from('payments')
         .select('*')
-        .gte('paid_date', start)
-        .lte('paid_date', end)
+        .eq('for_cycle', targetCycle)
         .order('paid_date', { ascending: false })
 
       if (err) throw err
@@ -70,7 +70,7 @@ export function usePayments(): UsePaymentsReturn {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [targetCycle])
 
   useEffect(() => { load() }, [load])
 
@@ -79,7 +79,7 @@ export function usePayments(): UsePaymentsReturn {
       student_id:  data.student_id,
       amount:      data.amount,
       paid_date:   data.paid_date,
-      for_cycle:   data.for_cycle  ?? format(new Date(), 'yyyy-MM'),
+      for_cycle:   data.for_cycle  ?? targetCycle,
       mode:        data.mode       ?? null,
       note:        data.note       ?? null,
       recorded_by: userId,
@@ -94,17 +94,14 @@ export function usePayments(): UsePaymentsReturn {
     if (err) throw err
     const payment = inserted as Payment
 
-    // Optimistic local update instead of a full month refetch — only append if the
-    // payment actually falls within the currently-loaded calendar-month window.
-    const today = new Date()
-    const start = format(startOfMonth(today), 'yyyy-MM-dd')
-    const end   = format(endOfMonth(today),   'yyyy-MM-dd')
-    if (payment.paid_date >= start && payment.paid_date <= end) {
+    // Optimistic local update instead of a full refetch — only append if the
+    // payment is actually for the cycle currently loaded/viewed.
+    if (payment.for_cycle === targetCycle) {
       setPayments(prev => [payment, ...prev])
     }
 
     return payment
-  }, [userId])
+  }, [userId, targetCycle])
 
   return { payments, isLoading, error, addPayment, refetch: load }
 }
