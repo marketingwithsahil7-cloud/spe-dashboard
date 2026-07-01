@@ -53,7 +53,7 @@ export function usePermissions(): Permissions {
 
   return {
     // Navigation — head/owner sees everything; assistant sees their areas
-    canSeeDashboard:  headOrOwner,
+    canSeeDashboard:  true,          // all coaches — assistants get their own personal dashboard
     canSeeStudents:   headOrOwner,
     canSeeAttendance: true,
     canSeeFees:       headOrOwner,

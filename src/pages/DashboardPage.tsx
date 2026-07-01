@@ -11,6 +11,7 @@ import { StatsCards } from '../components/dashboard/StatsCards'
 import { TrialAlertBar } from '../components/dashboard/TrialAlertBar'
 import { ActionPanel } from '../components/dashboard/ActionPanel'
 import { Charts } from '../components/dashboard/Charts'
+import { AssistantDashboard } from '../components/dashboard/AssistantDashboard'
 import { Button } from '../components/ui/Button'
 import { SkeletonStat } from '../components/ui/Skeleton'
 
@@ -66,6 +67,12 @@ function getGreeting(): string {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const { role } = useAuthStore()
+  if (role === 'assistant') return <AssistantDashboard />
+  return <HeadOwnerDashboard />
+}
+
+function HeadOwnerDashboard() {
   const navigate   = useNavigate()
   const { coach, isHeadOrOwner } = useAuthStore()
   const firstName  = coach?.name.split(' ')[0] ?? 'Coach'

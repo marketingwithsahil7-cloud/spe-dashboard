@@ -1,49 +1,24 @@
 import { useState, lazy, Suspense } from 'react'
 import { format } from 'date-fns'
-import { Users, Lock, CalendarDays } from 'lucide-react'
+import { Users, CalendarDays } from 'lucide-react'
 import { PageGlow } from '../components/ui/PageGlow'
 const AmbientBackground = lazy(() => import('../components/ui/AmbientBackground'))
 import { useCoaches } from '../hooks/useCoaches'
 import { usePermissions } from '../hooks/usePermissions'
-import { useAuthStore } from '../store/authStore'
 import { CoachList } from '../components/coaches/CoachList'
 import { CoachAttendance } from '../components/coaches/CoachAttendance'
 import { PayrollApproval } from '../components/coaches/PayrollApproval'
-import { MyCoachPanel } from '../components/coaches/MyCoachPanel'
 import { Skeleton } from '../components/ui/Skeleton'
-import { cn } from '../lib/utils'
 import type { CoachWithStats } from '../hooks/useCoaches'
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
 
 type TabId = 'coaches' | 'attendance' | 'payroll'
 
-// ─── Locked payroll placeholder ───────────────────────────────────────────────
-
-function PayrollLocked() {
-  return (
-    <div className="glass rounded-2xl p-12 text-center flex flex-col items-center gap-4">
-      <div
-        className="w-14 h-14 rounded-full flex items-center justify-center"
-        style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-      >
-        <Lock size={24} className="text-slate-500" />
-      </div>
-      <div>
-        <p className="font-display text-base text-white uppercase tracking-widest">Head Coach Only</p>
-        <p className="font-body text-sm text-slate-500 mt-1">
-          Payroll approval requires head coach permissions.
-        </p>
-      </div>
-    </div>
-  )
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CoachesPage() {
   const { canApprovePayroll } = usePermissions()
-  const { coach: myCoach } = useAuthStore()
 
   const {
     coaches,
@@ -57,16 +32,19 @@ export default function CoachesPage() {
     refetch,
   } = useCoaches()
 
-  const [activeTab, setActiveTab] = useState<TabId>('coaches')
+  // Assistants only ever see the Attendance tab (their personal stats now
+  // live on the dashboard) — head/owner get the full Coaches/Attendance/Payroll set.
+  const [activeTab, setActiveTab] = useState<TabId>(canApprovePayroll ? 'coaches' : 'attendance')
 
-  // For assistant view — find logged-in coach's stats from the full list
-  const myCoachWithStats = coaches.find(c => c.id === myCoach?.id) ?? null
-
-  const TABS: { id: TabId; label: string; headOnly?: boolean }[] = [
-    { id: 'coaches',    label: canApprovePayroll ? 'Coaches' : 'My Stats' },
-    { id: 'attendance', label: 'Attendance' },
-    { id: 'payroll',    label: 'Payroll', headOnly: true },
-  ]
+  const TABS: { id: TabId; label: string }[] = canApprovePayroll
+    ? [
+        { id: 'coaches',    label: 'Coaches' },
+        { id: 'attendance', label: 'Attendance' },
+        { id: 'payroll',    label: 'Payroll' },
+      ]
+    : [
+        { id: 'attendance', label: 'Attendance' },
+      ]
 
   const totalSessions = coaches.reduce((sum, c) => sum + c.sessionsThisMonth, 0)
 
@@ -130,11 +108,10 @@ export default function CoachesPage() {
           </div>
         </div>
 
-        {/* ── Tabs ──────────────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-2">
-          {TABS.map(tab => {
-            const locked = tab.headOnly && !canApprovePayroll
-            return (
+        {/* ── Tabs (only shown when there's a choice to make) ─────────────────── */}
+        {TABS.length > 1 && (
+          <div className="flex items-center gap-2">
+            {TABS.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
@@ -145,23 +122,15 @@ export default function CoachesPage() {
                     : 'text-slate-400 glass glass-hover hover:text-white',
                 ].join(' ')}
               >
-                {locked && (
-                  <Lock
-                    size={11}
-                    className={cn(activeTab === tab.id ? 'text-pitch' : 'text-slate-600')}
-                  />
-                )}
                 {tab.label}
               </button>
-            )
-          })}
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* ── Tab content ───────────────────────────────────────────────────── */}
         {activeTab === 'coaches' && (
-          canApprovePayroll
-            ? <CoachList coaches={coaches} isLoading={isLoading} onViewAttendance={handleViewAttendance} />
-            : <MyCoachPanel coach={myCoachWithStats} isLoading={isLoading} onGoToAttendance={() => setActiveTab('attendance')} />
+          <CoachList coaches={coaches} isLoading={isLoading} onViewAttendance={handleViewAttendance} />
         )}
 
         {activeTab === 'attendance' && (
@@ -175,9 +144,7 @@ export default function CoachesPage() {
         )}
 
         {activeTab === 'payroll' && (
-          canApprovePayroll
-            ? <PayrollApproval coaches={coaches} verifyAttendance={verifyAttendance} />
-            : <PayrollLocked />
+          <PayrollApproval coaches={coaches} verifyAttendance={verifyAttendance} />
         )}
 
       </div>

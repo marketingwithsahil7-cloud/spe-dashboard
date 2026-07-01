@@ -10,7 +10,6 @@ import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { PermissionRoute } from './components/auth/PermissionRoute'
 import { AppLayout } from './components/layout/AppLayout'
 import { ROUTES } from './lib/constants'
-import { useAuthStore } from './store/authStore'
 
 // Eager — needed before auth resolves
 import LoginPage from './pages/LoginPage'
@@ -41,10 +40,10 @@ function PageSkeleton() {
   )
 }
 
-// Sends each role to their correct home page on root / unknown routes
+// Sends every role to the dashboard on root / unknown routes — DashboardPage
+// itself renders role-appropriate content (personal panel for assistants).
 function DefaultRedirect() {
-  const { role } = useAuthStore()
-  return <Navigate to={role === 'assistant' ? ROUTES.ATTENDANCE : ROUTES.DASHBOARD} replace />
+  return <Navigate to={ROUTES.DASHBOARD} replace />
 }
 
 // Inner component lives inside BrowserRouter so hooks that need router context work

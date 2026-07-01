@@ -14,7 +14,6 @@ export const FEE_STATUS: FeeStatus[] = ['paid', 'due_soon', 'due_today', 'overdu
 export const ROUTES = {
   LOGIN:      '/login',
   DASHBOARD:  '/dashboard',
-  MY_DASHBOARD: '/my-dashboard',
   STUDENTS:   '/students',
   ATTENDANCE: '/attendance',
   FEES:       '/fees',

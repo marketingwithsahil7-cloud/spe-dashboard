@@ -81,6 +81,23 @@ export async function fetchAllCoachAttendanceForMonth(
   return (data ?? []) as CoachAttendance[]
 }
 
+export async function fetchCoachAttendanceRange(
+  coachId: string,
+  startDate: string,
+  endDate: string,
+): Promise<CoachAttendance[]> {
+  const { data, error } = await supabase
+    .from('coach_attendance')
+    .select('*')
+    .eq('coach_id', coachId)
+    .gte('date', startDate)
+    .lte('date', endDate)
+    .order('date', { ascending: false })
+
+  if (error) throw error
+  return (data ?? []) as CoachAttendance[]
+}
+
 export async function fetchDayAttendance(date: string): Promise<CoachAttendance[]> {
   const { data, error } = await supabase
     .from('coach_attendance')
