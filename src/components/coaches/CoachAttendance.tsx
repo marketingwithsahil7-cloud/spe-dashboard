@@ -17,7 +17,7 @@ import type { Coach, CoachAttendance as CoachAttRecord } from '../../types/index
 
 interface CoachAttendanceProps {
   coaches:                 Coach[]
-  markCoachAttendance:     (coachId: string, date: string, batch: string, session: string, markedBy: string) => Promise<void>
+  markCoachAttendance:     (coachId: string, date: string, batch: string, session: string, markedBy: string, note?: string) => Promise<void>
   confirmAttendance:       (id: string) => Promise<void>
   disputeAttendance:       (id: string) => Promise<void>
   ownerConfirmAttendance?: (id: string) => Promise<void>
@@ -74,14 +74,21 @@ interface SectionAProps {
 }
 
 function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: SectionAProps) {
-  const currentCoach = useAuthStore(s => s.coach)
-  const isOwnerUser  = useAuthStore(s => s.role === 'owner')
+  const currentCoach     = useAuthStore(s => s.coach)
+  const isOwnerUser      = useAuthStore(s => s.role === 'owner')
+  const isHeadOrOwnerUser = useAuthStore(s => s.role === 'owner' || s.role === 'head')
+
+  // Assistants can only mark/view their own row — head/owner see everyone
+  const visibleCoaches = isHeadOrOwnerUser
+    ? coaches
+    : coaches.filter(c => c.id === currentCoach?.id)
 
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [dayRecords,   setDayRecords]   = useState<CoachAttRecord[]>([])
   const [loadingDay,   setLoadingDay]   = useState(false)
   const [markingId,    setMarkingId]    = useState<string | null>(null)  // coachId-batch
   const [markingAll,   setMarkingAll]   = useState<string | null>(null)  // batch
+  const [noteDrafts,   setNoteDrafts]   = useState<Record<string, string>>({})  // batch -> draft note
   const listRef = useRef<HTMLDivElement>(null)
 
   const loadDay = useCallback(async (date: string) => {
@@ -116,7 +123,8 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
 
   async function handleMark(coach: Coach, batch: string) {
     if (!currentCoach) return
-    const key = `${coach.id}-${batch}`
+    const key  = `${coach.id}-${batch}`
+    const note = noteDrafts[batch]?.trim() || null
     setMarkingId(key)
     try {
       await markCoachAttendance(
@@ -125,6 +133,7 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
         batch,
         batch,          // session = batch
         currentCoach.id,
+        note ?? undefined,
       )
       // Optimistically add to local state — owner gets instant confirmed+verified
       setDayRecords(prev => [...prev, {
@@ -137,8 +146,10 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
         confirmed_by_coach: isOwnerUser,
         disputed:           false,
         verified:           isOwnerUser,
+        session_note:       note,
         created_at:         new Date().toISOString(),
       }])
+      setNoteDrafts(prev => ({ ...prev, [batch]: '' }))
     } catch {
       // Revert optimistic on error
       await loadDay(selectedDate)
@@ -149,15 +160,17 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
 
   async function handleMarkAll(batch: string) {
     if (!currentCoach) return
+    const note = noteDrafts[batch]?.trim() || undefined
     setMarkingAll(batch)
     try {
-      const unmarked = coaches.filter(c => !getRecord(c.id, batch))
+      const unmarked = visibleCoaches.filter(c => !getRecord(c.id, batch))
       await Promise.all(
         unmarked.map(c =>
-          markCoachAttendance(c.id, selectedDate, batch, batch, currentCoach.id),
+          markCoachAttendance(c.id, selectedDate, batch, batch, currentCoach.id, note),
         ),
       )
       await loadDay(selectedDate)
+      setNoteDrafts(prev => ({ ...prev, [batch]: '' }))
     } catch {
       await loadDay(selectedDate)
     } finally {
@@ -244,9 +257,10 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
       ) : (
         <div ref={listRef} className="space-y-4">
           {BATCHES.filter(b => b !== 'Both').map(batch => {
-            const color       = BATCH_COLORS[batch] ?? BATCH_COLORS['5-6 PM']
-            const allMarked   = coaches.every(c => !!getRecord(c.id, batch))
-            const isMarkingAll = markingAll === batch
+            const color         = BATCH_COLORS[batch] ?? BATCH_COLORS['5-6 PM']
+            const allMarked     = visibleCoaches.every(c => !!getRecord(c.id, batch))
+            const isMarkingAll  = markingAll === batch
+            const showBulkMark  = visibleCoaches.length > 1
 
             return (
               <div
@@ -259,7 +273,7 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
                   <span className={cn('font-display text-xs font-bold uppercase tracking-widest', color.text)}>
                     {batch}
                   </span>
-                  {!allMarked && (
+                  {showBulkMark && !allMarked && (
                     <button
                       disabled={isMarkingAll}
                       onClick={() => handleMarkAll(batch)}
@@ -272,7 +286,7 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
                       }
                     </button>
                   )}
-                  {allMarked && (
+                  {showBulkMark && allMarked && (
                     <span className="font-body text-[11px] text-grass flex items-center gap-1">
                       <CheckCircle2 size={11} /> All marked
                     </span>
@@ -280,30 +294,51 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
                 </div>
 
                 {/* Coach rows */}
-                {coaches.map(coach => {
+                {visibleCoaches.map(coach => {
                   const record  = getRecord(coach.id, batch)
                   const key     = `${coach.id}-${batch}`
                   const marking = markingId === key
 
                   return (
-                    <div key={coach.id} className="mark-row flex items-center gap-3">
-                      <Avatar name={coach.name} size="sm" />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-body text-sm font-semibold text-white truncate">
-                          {coach.name}
-                        </p>
-                        {record && (
-                          <p className="font-body text-[10px] text-slate-500 mt-0.5">
-                            Marked by {coaches.find(c => c.id === record.marked_by)?.name ?? 'Unknown'}
+                    <div key={coach.id} className="mark-row flex flex-col gap-1">
+                      <div className="flex items-center gap-3">
+                        <Avatar name={coach.name} size="sm" />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-body text-sm font-semibold text-white truncate">
+                            {coach.name}
                           </p>
-                        )}
-                      </div>
+                          {record && (
+                            <p className="font-body text-[10px] text-slate-500 mt-0.5">
+                              Marked by {coaches.find(c => c.id === record.marked_by)?.name ?? 'Unknown'}
+                            </p>
+                          )}
+                        </div>
 
-                      {record ? (
-                        isOwnerUser && !record.confirmed_by_coach && !record.disputed ? (
+                        {record ? (
+                          isOwnerUser && !record.confirmed_by_coach && !record.disputed ? (
+                            <button
+                              disabled={markingId === `confirm-${record.id}`}
+                              onClick={() => handleOwnerConfirm(record)}
+                              className="flex items-center gap-1.5 font-body text-xs font-semibold px-3 py-1.5 rounded-lg transition-all hover:opacity-80 disabled:opacity-50"
+                              style={{
+                                background: 'rgba(0,255,135,0.1)',
+                                border:     '1px solid rgba(0,255,135,0.25)',
+                                color:      '#00FF87',
+                              }}
+                            >
+                              {markingId === `confirm-${record.id}`
+                                ? <Loader2 size={11} className="animate-spin" />
+                                : <CheckCircle2 size={11} />
+                              }
+                              {markingId === `confirm-${record.id}` ? 'Confirming…' : 'Confirm'}
+                            </button>
+                          ) : (
+                            <StatusChip record={record} />
+                          )
+                        ) : (
                           <button
-                            disabled={markingId === `confirm-${record.id}`}
-                            onClick={() => handleOwnerConfirm(record)}
+                            disabled={marking}
+                            onClick={() => handleMark(coach, batch)}
                             className="flex items-center gap-1.5 font-body text-xs font-semibold px-3 py-1.5 rounded-lg transition-all hover:opacity-80 disabled:opacity-50"
                             style={{
                               background: 'rgba(0,255,135,0.1)',
@@ -311,36 +346,40 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
                               color:      '#00FF87',
                             }}
                           >
-                            {markingId === `confirm-${record.id}`
+                            {marking
                               ? <Loader2 size={11} className="animate-spin" />
                               : <CheckCircle2 size={11} />
                             }
-                            {markingId === `confirm-${record.id}` ? 'Confirming…' : 'Confirm'}
+                            {marking ? 'Marking…' : 'Mark Present'}
                           </button>
-                        ) : (
-                          <StatusChip record={record} />
-                        )
-                      ) : (
-                        <button
-                          disabled={marking}
-                          onClick={() => handleMark(coach, batch)}
-                          className="flex items-center gap-1.5 font-body text-xs font-semibold px-3 py-1.5 rounded-lg transition-all hover:opacity-80 disabled:opacity-50"
-                          style={{
-                            background: 'rgba(0,255,135,0.1)',
-                            border:     '1px solid rgba(0,255,135,0.25)',
-                            color:      '#00FF87',
-                          }}
-                        >
-                          {marking
-                            ? <Loader2 size={11} className="animate-spin" />
-                            : <CheckCircle2 size={11} />
-                          }
-                          {marking ? 'Marking…' : 'Mark Present'}
-                        </button>
+                        )}
+                      </div>
+
+                      {record?.session_note && (
+                        <p className="font-body text-[11px] text-slate-400 italic pl-11">
+                          📝 &ldquo;{record.session_note}&rdquo;
+                        </p>
                       )}
                     </div>
                   )
                 })}
+
+                {/* Session note — attaches to whichever row is marked next */}
+                {!allMarked && (
+                  <div className="pt-1">
+                    <label className="flex items-center gap-1.5 font-body text-[11px] text-slate-500 mb-1.5">
+                      📝 Session Note (optional)
+                    </label>
+                    <textarea
+                      value={noteDrafts[batch] ?? ''}
+                      onChange={e => setNoteDrafts(prev => ({ ...prev, [batch]: e.target.value }))}
+                      placeholder="e.g. Left early due to emergency, covered first 30 mins..."
+                      rows={2}
+                      className="w-full rounded-lg px-3 py-2 font-body text-xs text-white placeholder:text-slate-600 resize-none focus:outline-none"
+                      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+                    />
+                  </div>
+                )}
               </div>
             )
           })}

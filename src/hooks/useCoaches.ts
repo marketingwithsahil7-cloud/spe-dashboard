@@ -31,6 +31,7 @@ export interface UseCoachesReturn {
     batch: string,
     session: string,
     markedBy: string,
+    note?: string,
   ) => Promise<void>
   confirmAttendance:       (id: string) => Promise<void>
   disputeAttendance:       (id: string) => Promise<void>
@@ -214,6 +215,7 @@ export function useCoaches(): UseCoachesReturn {
     batch:    string,
     session:  string,
     markedBy: string,
+    note?:    string,
   ): Promise<void> => {
     // Owner's mark is instantly confirmed + verified — no peer confirmation needed
     const ownerMarking = useAuthStore.getState().isOwner()
@@ -228,6 +230,7 @@ export function useCoaches(): UseCoachesReturn {
         confirmed_by_coach: ownerMarking,
         disputed:           false,
         verified:           ownerMarking,
+        session_note:       note?.trim() || null,
       })
     if (err) throw err
   }, [])

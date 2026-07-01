@@ -117,6 +117,7 @@ export interface CoachAttendance {
   confirmed_by_coach: boolean
   disputed: boolean
   verified: boolean
+  session_note: string | null
   created_at: string
 }
 

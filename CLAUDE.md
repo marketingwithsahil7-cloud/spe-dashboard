@@ -214,7 +214,8 @@ Card:    linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.0
 - Storage bucket: `academy-assets` (public) — logos stored at `logos/main-logo.<ext>`
 
 ### coach_attendance
-`coach_id, date, batch, session, confirmed_by_coach, disputed, verified`
+`coach_id, date, batch, session, confirmed_by_coach, disputed, verified, session_note`
+- `session_note` (nullable TEXT) — optional free-text note captured at mark time, e.g. "Left early due to emergency." One note per row (i.e. per coach, per date, per batch) — see [[GOTCHAS]].
 
 ### student_reports
 `student_id, month (1–12), year, skill_ratings (JSONB), coach_remarks (TEXT), pdf_url (TEXT), created_by`
@@ -350,6 +351,7 @@ src/
 - [x] **Phase 20 (2026-07-01):** Fees page performance fix — eliminated full students+payments refetch after every payment (was re-rendering/re-animating all 20+ cards); `useStudents({ lite: true })` trims the Fees query to fee-relevant columns; `FeeCard` wrapped in `React.memo`; `PaymentForm` reset-on-open bug fixed (was silently wiping note/date/mode for flexible-fee students on every render). See section 12.
 - [x] **Phase 21 (2026-07-01):** Fee management — month selector, past-month audit view, half-month + note UX. `useStudents`/`usePayments` both take an optional `month` ('yyyy-MM', default current) and key fee status + payment queries off `for_cycle` for that month instead of always-current-month. New `MonthSelector` (prev/next arrows, disabled past current month) drives `FeeDashboard`'s `selectedMonth` state. Viewing a past month switches `computeFeeStatus` into audit mode — no `due_soon`/`due_today`, just `paid` vs `overdue` (displayed as "No record for [Month]" in `FeeCard`/`Badge`, not urgency language). `PaymentForm` gets a `defaultMonth` prop pre-selecting "For Month" from the Fees page's selected month, a "Half Month" toggle (halves `monthly_fee` for fixed-fee students, stays editable), and an enlarged/relabeled Note field ("Note / Reason", 3 rows, multi-example placeholder) — `PaymentHistory` already rendered `p.note` under each entry, no change needed there.
 - [x] **Phase 22 (2026-07-01):** Assistant Coach Personal Dashboard. `/dashboard` is now open to all roles (`canSeeDashboard: true` in `usePermissions`) and is every role's default landing route (`DefaultRedirect` no longer branches by role). `DashboardPage` is a thin switch — `role === 'assistant'` renders the new `AssistantDashboard` (today's per-batch session status vs. `academy_settings.training_days`, this month's session/earnings summary, last-7-days session log, "Mark Today's Attendance" CTA to `/coaches?tab=attendance`); everyone else gets the existing head/owner body (extracted into `HeadOwnerDashboard`, unchanged). New `fetchCoachAttendanceRange(coachId, start, end)` helper added to `useCoaches.ts` for the 7-day window (a pure calendar-month fetch would miss records that cross a month boundary, e.g. querying on the 1st for the last 7 days). Superseded and deleted `MyCoachPanel.tsx` / the "My Stats" tab on `CoachesPage` — assistants now only see an `Attendance` tab there (personal stats live on `/dashboard` instead); the tab bar itself is hidden entirely when a role only has one tab. Removed the dead `ROUTES.MY_DASHBOARD` constant.
+- [x] **Phase 23 (2026-07-01):** Coach attendance privacy + session notes. `CoachAttendance.tsx`'s "Mark Sessions" section (`SectionA`) now computes `visibleCoaches` — head/owner still see every coach per batch, assistants see only their own row (filtered by `c.id === currentCoach?.id`); the "Mark All" / "All marked" bulk-action UI is hidden entirely when there's only one visible coach. Added an optional per-batch "Session Note" textarea (shown while any visible coach in that batch is still unmarked) — its text is attached to whichever coach's row gets marked next via a new optional `note` param threaded through `markCoachAttendance` → `coach_attendance.session_note`, and rendered read-only (small, italic, slate) under that coach's row once saved. Required a DB migration — see section 14c.
 
 ---
 
@@ -402,6 +404,7 @@ Hard-won lessons — read before touching these areas to avoid re-introducing fi
 - **List hooks should only show a loading skeleton once per mount, not on every refetch.** Track a `hasLoadedOnce` ref and skip `setIsLoading(true)` on subsequent `load()` calls once it's set — otherwise every background refresh blanks a populated list even though the data barely changed.
 - **`useStudents` supports a `lite: true` option** (`useStudents.ts`) that selects only fee-relevant columns (`id, name, batch, parent_name, parent_phone, billing_cycle_day, monthly_fee, fee_is_fixed, status, dob`) — used by `FeeDashboard`, which never needs `photo_url`/`join_date`/`academy_id`. `Avatar` already falls back to initials when `src` is missing, so this is a safe trim, not a functional change. Don't apply `lite` to pages that render actual student photos (StudentsPage, StudentProfile).
 - **`academy_settings.training_days` stores lowercase full day names** (`'monday'`, `'tuesday'`, ...) — `SettingsPage`'s day picker writes them that way. Anything comparing against `date-fns`'s `format(date, 'EEEE')` (which returns `'Monday'`, capitalized) must `.toLowerCase()` first, or the comparison silently never matches. `AssistantDashboard`'s "is today a training day" / "next training day" logic does this.
+- **`coach_attendance.session_note` is per-row (per coach + date + batch), not a true shared session-level field**, even though it's framed to coaches as a "session note." `CoachAttendance.tsx`'s per-batch textarea attaches its text to whichever coach's row gets marked next, then clears — it doesn't retroactively apply to already-marked rows or sync across coaches marking the same batch/date. This is fine in practice because assistants can only mark their own row (see `visibleCoaches` in `SectionA`), so one coach per batch per day is the common case; if two coaches ever mark the same batch/date, each keeps their own independent note.
 - **A render-phase `if (condition) { setState(...) }` guard is not a substitute for `useEffect`.** `PaymentForm`'s old reset-on-open logic re-ran on *every* render as long as `amount === ''` — harmless for fixed-fee students (amount becomes non-empty immediately) but for flexible-fee students (amount starts and can stay `''`) it silently wiped `note`/`paidDate`/`mode` back to defaults the moment the coach touched any other field first. Reset-on-open logic belongs in a `useEffect` keyed on a *stable* identity (`student?.id`, not the whole object) so it only fires when the drawer actually opens for a new student, not on every unrelated re-render.
 
 ---
@@ -412,6 +415,7 @@ Hard-won lessons — read before touching these areas to avoid re-introducing fi
 |---|---|
 | `THREE.Clock deprecated` warning from `useFrame` in `SoccerBall3D.tsx` | **Known · minor** — originates inside R3F/Three.js internals, does not affect functionality |
 | `student-photos` Supabase Storage bucket | **Manual setup required if not already run** — SQL in section 14; without it photo upload throws a storage error |
+| `coach_attendance.session_note` column | **Manual setup required if not already run** — SQL in section 14c; without it, marking attendance with a note filled in throws an insert error |
 
 All other previously-tracked issues (TS build errors, login animation race, WebGL context loss, Events RLS, Drawer scroll, payment RLS role mismatch, coach-attendance pending-for-owner, navigation-stuck) are **resolved** — root-cause patterns are captured in section 12 (Gotchas) to prevent regression.
 
@@ -477,6 +481,19 @@ USING (bucket_id = 'payment-invoices');
 ```
 
 Invoice PDFs are stored at `payment-invoices/{paymentId}.pdf` and served via public URL.
+
+---
+
+## 14c. SUPABASE MIGRATION — coach_attendance.session_note column
+
+Run this SQL to enable per-session notes on coach attendance (Phase 23):
+
+```sql
+ALTER TABLE coach_attendance
+ADD COLUMN IF NOT EXISTS session_note TEXT;
+```
+
+No RLS changes needed — the existing `"Authenticated users can insert coach_attendance"` policy (`WITH CHECK (TRUE)`) already covers inserting a row with `session_note` set.
 
 ---
 
