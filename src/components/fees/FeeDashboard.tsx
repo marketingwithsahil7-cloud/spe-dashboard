@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo } from 'react'
+import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import { format } from 'date-fns'
 import {
   AlertTriangle, Clock, CheckCircle2, Users,
@@ -125,7 +125,8 @@ export function FeeDashboard() {
   const statsRef    = useRef<HTMLDivElement>(null)
   const contentRef  = useRef<HTMLDivElement>(null)
 
-  const { students, isLoading: studentsLoading, error: studentsError, refetch: refetchStudents } = useStudents()
+  // lite: true — Fees page only needs fee-relevant columns, not photo_url/join_date/etc.
+  const { students, isLoading: studentsLoading, error: studentsError, applyPaymentOptimistic } = useStudents({ lite: true })
   const { payments, isLoading: paymentsLoading, error: paymentsError, addPayment } = usePayments()
 
   const [activeTab,      setActiveTab]      = useState<TabView>('action')
@@ -186,14 +187,16 @@ export function FeeDashboard() {
     )
   }
 
-  const handleRecordPay = (student: StudentWithFee) => {
+  // Memoized so FeeCard's React.memo isn't defeated by a fresh function reference every render.
+  const handleRecordPay = useCallback((student: StudentWithFee) => {
     setSelectedStudent(student)
     setFormOpen(true)
-  }
+  }, [])
 
   const handleSavePayment = async (data: Parameters<typeof addPayment>[0]) => {
     const payment = await addPayment(data)
-    refetchStudents()
+    // Updates just this one student's fee status locally — no full students/payments refetch.
+    applyPaymentOptimistic(payment.student_id, payment.for_cycle)
     return payment
   }
 

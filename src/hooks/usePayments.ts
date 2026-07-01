@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { format, startOfMonth, endOfMonth } from 'date-fns'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../store/authStore'
@@ -43,8 +43,12 @@ export function usePayments(): UsePaymentsReturn {
   const [isLoading, setIsLoading] = useState(true)
   const [error,     setError]     = useState<string | null>(null)
 
+  // Only show the loading skeleton on the very first fetch — refetches shouldn't
+  // blank out an already-populated payment list.
+  const hasLoadedOnce = useRef(false)
+
   const load = useCallback(async () => {
-    setIsLoading(true)
+    if (!hasLoadedOnce.current) setIsLoading(true)
     setError(null)
     try {
       const today = new Date()
@@ -60,6 +64,7 @@ export function usePayments(): UsePaymentsReturn {
 
       if (err) throw err
       setPayments((data ?? []) as Payment[])
+      hasLoadedOnce.current = true
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load payments')
     } finally {
@@ -87,9 +92,19 @@ export function usePayments(): UsePaymentsReturn {
       .single()
 
     if (err) throw err
-    await load()
-    return inserted as Payment
-  }, [userId, load])
+    const payment = inserted as Payment
+
+    // Optimistic local update instead of a full month refetch — only append if the
+    // payment actually falls within the currently-loaded calendar-month window.
+    const today = new Date()
+    const start = format(startOfMonth(today), 'yyyy-MM-dd')
+    const end   = format(endOfMonth(today),   'yyyy-MM-dd')
+    if (payment.paid_date >= start && payment.paid_date <= end) {
+      setPayments(prev => [payment, ...prev])
+    }
+
+    return payment
+  }, [userId])
 
   return { payments, isLoading, error, addPayment, refetch: load }
 }

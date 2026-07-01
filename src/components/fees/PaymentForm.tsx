@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
 import {
   IndianRupee, Loader2, CheckCircle2, AlertCircle,
@@ -151,9 +151,14 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
   const [invoiceError,   setInvoiceError]   = useState<string | null>(null)
   const [showSuccess,    setShowSuccess]    = useState(false)
 
-  // Reset form when a new student is selected
-  const handleOpen = useCallback(() => {
-    if (student) {
+  // Reset form whenever the drawer opens for a (possibly new) student. Keyed on
+  // student?.id rather than the whole student object — a background fee-status
+  // update while the drawer is open must not wipe out what the coach has typed
+  // (the old render-phase reset re-ran on every render for flexible-fee students,
+  // since their `amount` field starts and can stay '' — silently erasing note/
+  // date/mode as soon as the user touched any other field first).
+  useEffect(() => {
+    if (isOpen && student) {
       // Flexible-fee students start with empty amount — coach enters the correct amount each time
       setAmount(student.fee_is_fixed ? String(student.monthly_fee) : '')
       setPaidDate(format(new Date(), 'yyyy-MM-dd'))
@@ -165,11 +170,8 @@ export function PaymentForm({ student, isOpen, onClose, onSave }: PaymentFormPro
       setInvoice(null)
       setInvoiceError(null)
     }
-  }, [student])
-
-  if (isOpen && !saving && !error && !showSuccess && amount === '') {
-    handleOpen()
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, student?.id])
 
   const handleClose = () => {
     if (saving) return

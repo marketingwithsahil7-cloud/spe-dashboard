@@ -1,8 +1,13 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { format, differenceInDays } from 'date-fns'
 import { supabase } from '../lib/supabase'
 import { ACADEMY_ID } from '../lib/constants'
 import type { Student, BatchType, StudentStatus, FeeStatus } from '../types/index'
+
+// Columns needed by the Fees page — excludes photo_url/join_date/academy_id
+// which are unused there (Avatar already falls back to initials without a photo).
+const LITE_COLUMNS =
+  'id, name, batch, parent_name, parent_phone, billing_cycle_day, monthly_fee, fee_is_fixed, status, dob'
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -26,6 +31,11 @@ export type StudentInput = {
   photo_url?: string | null
 }
 
+export interface UseStudentsOptions {
+  // Fetch only the columns the Fees page needs — skips photo_url/join_date/academy_id.
+  lite?: boolean
+}
+
 export interface UseStudentsReturn {
   students: StudentWithFee[]
   isLoading: boolean
@@ -35,6 +45,9 @@ export interface UseStudentsReturn {
   deleteStudent: (id: string) => Promise<void>
   uploadPhoto: (file: File, studentId: string) => Promise<string>
   refetch: () => void
+  // Updates one student's cached fee status locally instead of a full refetch —
+  // used right after recording a payment so the other 19+ cards don't re-render.
+  applyPaymentOptimistic: (studentId: string, forCycle: string | null | undefined) => void
   searchStudents: (query: string) => StudentWithFee[]
   filterByBatch: (batch: BatchType | 'All') => StudentWithFee[]
   filterByStatus: (status: StudentStatus | 'All') => StudentWithFee[]
@@ -42,7 +55,7 @@ export interface UseStudentsReturn {
 
 // ─── Fee status helper ────────────────────────────────────────────────────────
 
-function computeFeeStatus(
+export function computeFeeStatus(
   student: Student,
   paidThisMonth: Set<string>,
   today: Date,
@@ -73,24 +86,31 @@ function computeFeeStatus(
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useStudents(): UseStudentsReturn {
+export function useStudents(options?: UseStudentsOptions): UseStudentsReturn {
+  const lite = options?.lite ?? false
+
   const [students, setStudents] = useState<StudentWithFee[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError]         = useState<string | null>(null)
 
+  // Only show the loading skeleton on the very first fetch of this hook instance —
+  // subsequent refetches (e.g. after add/edit) swap data in without blanking the list.
+  const hasLoadedOnce = useRef(false)
+
   const load = useCallback(async () => {
-    setIsLoading(true)
+    if (!hasLoadedOnce.current) setIsLoading(true)
     setError(null)
 
     try {
       const today        = new Date()
       const currentCycle = format(today, 'yyyy-MM')
 
+      const studentsQuery = lite
+        ? supabase.from('students').select(LITE_COLUMNS).order('name', { ascending: true })
+        : supabase.from('students').select('*').order('name', { ascending: true })
+
       const [studentsRes, paidRes] = await Promise.all([
-        supabase
-          .from('students')
-          .select('*')
-          .order('name', { ascending: true }),
+        studentsQuery,
         supabase
           .from('payments')
           .select('student_id')
@@ -109,14 +129,28 @@ export function useStudents(): UseStudentsReturn {
       }))
 
       setStudents(enriched)
+      hasLoadedOnce.current = true
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load students')
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [lite])
 
   useEffect(() => { load() }, [load])
+
+  // Flips a single student's cached fee status to 'paid' right after a payment is
+  // recorded for the current billing cycle — avoids a full students+payments refetch
+  // (and the resulting re-render/re-animation of every other fee card).
+  const applyPaymentOptimistic = useCallback((studentId: string, forCycle: string | null | undefined) => {
+    const currentCycle = format(new Date(), 'yyyy-MM')
+    if (forCycle !== currentCycle) return // payment wasn't for the active cycle — status unchanged
+
+    setStudents(prev => prev.map(s => {
+      if (s.id !== studentId) return s
+      return { ...s, ...computeFeeStatus(s, new Set([studentId]), new Date()) }
+    }))
+  }, [])
 
   // ── Mutations ───────────────────────────────────────────────────────────────
 
@@ -216,6 +250,7 @@ export function useStudents(): UseStudentsReturn {
     deleteStudent,
     uploadPhoto,
     refetch: load,
+    applyPaymentOptimistic,
     searchStudents,
     filterByBatch,
     filterByStatus,

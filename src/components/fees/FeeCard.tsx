@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, memo } from 'react'
 import { MessageCircle, PlusCircle, Clock } from 'lucide-react'
 import { Avatar } from '../ui/Avatar'
 import { Badge } from '../ui/Badge'
@@ -38,7 +38,9 @@ function getRemindConfig(feeStatus: string, daysOverdue: number): {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function FeeCard({ student, onRecordPay }: FeeCardProps) {
+// React.memo — with 20+ cards on screen, this skips re-rendering the ones whose
+// student/onRecordPay props haven't changed (e.g. after a single optimistic payment update).
+export const FeeCard = memo(function FeeCard({ student, onRecordPay }: FeeCardProps) {
   const { canRecordPayment } = usePermissions()
   const cardRef = useRef<HTMLDivElement>(null)
 
@@ -180,4 +182,4 @@ export function FeeCard({ student, onRecordPay }: FeeCardProps) {
       )}
     </div>
   )
-}
+})
