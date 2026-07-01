@@ -47,19 +47,6 @@ type PurposeValue = typeof PURPOSES[number]['value']
 
 const REPAYABLE_PURPOSES: PurposeValue[] = ['personal_advance']
 
-function getMonthYearOptions() {
-  return Array.from({ length: 12 }, (_, i) => {
-    const d = new Date()
-    d.setDate(1)
-    d.setMonth(d.getMonth() - i)
-    return {
-      month: d.getMonth() + 1,
-      year:  d.getFullYear(),
-      label: format(d, 'MMMM yyyy'),
-    }
-  })
-}
-
 // ─── Tooltip ──────────────────────────────────────────────────────────────────
 
 interface TipProps { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }
@@ -489,12 +476,10 @@ interface RevenueFundProps {
   expenses:        Expense[]
   summary:         RevenueSummary
   trend:           MonthlyTrendData[]
-  filterMonth:     number
-  filterYear:      number
   headCoaches:     CoachOption[]
   coaches:         CoachOption[]
-  onFilterChange:  (month: number, year: number) => void
   isLoading:       boolean
+  isHeadOrOwner:   boolean
   onAddExpense:    (data: ExpenseInput) => Promise<void>
   onUpdateExpense: (id: string, data: Partial<ExpenseInput>) => Promise<void>
   onDeleteExpense: (id: string) => Promise<void>
@@ -518,8 +503,8 @@ const PURPOSE_LABELS: Record<string, string> = {
 }
 
 export function RevenueFund({
-  expenses, summary, trend, filterMonth, filterYear,
-  headCoaches, coaches, onFilterChange, isLoading,
+  expenses, summary, trend,
+  headCoaches, coaches, isLoading, isHeadOrOwner,
   onAddExpense, onUpdateExpense, onDeleteExpense,
 }: RevenueFundProps) {
   const statsRef = useRef<HTMLDivElement>(null)
@@ -549,9 +534,7 @@ export function RevenueFund({
       { opacity: 0, x: -16 },
       { opacity: 1, x: 0, duration: 0.35, stagger: 0.05, ease: 'power2.out', clearProps: 'all' },
     )
-  }, [isLoading, filterMonth, filterYear])
-
-  const monthOptions = getMonthYearOptions()
+  }, [isLoading, expenses])
 
   // Group by category for revenue, by purpose for emergency
   const grouped = expenses.reduce<Record<string, Expense[]>>((acc, exp) => {
@@ -621,21 +604,14 @@ export function RevenueFund({
         </div>
       </div>
 
-      {/* ── Filter + Add ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <select
-          value={`${filterYear}-${filterMonth}`}
-          onChange={e => { const [y, m] = e.target.value.split('-').map(Number); onFilterChange(m, y) }}
-          className={cn('flex-1 min-w-[160px] px-4 py-2.5 rounded-xl font-body text-sm text-white', 'bg-white/[0.04] border border-white/[0.08] focus:outline-none focus:ring-2 focus:ring-grass/40 [color-scheme:dark] appearance-none')}
-        >
-          {monthOptions.map(opt => (
-            <option key={`${opt.year}-${opt.month}`} value={`${opt.year}-${opt.month}`}>{opt.label}</option>
-          ))}
-        </select>
-        <Button variant="primary" icon={<Plus size={15} />} onClick={() => { setEditExpense(null); setDrawerOpen(true) }}>
-          Add Expense
-        </Button>
-      </div>
+      {/* ── Add ───────────────────────────────────────────────────────────────── */}
+      {isHeadOrOwner && (
+        <div className="flex items-center justify-end">
+          <Button variant="primary" icon={<Plus size={15} />} onClick={() => { setEditExpense(null); setDrawerOpen(true) }}>
+            Add Expense
+          </Button>
+        </div>
+      )}
 
       {/* ── Expense list ─────────────────────────────────────────────────────── */}
       <div ref={listRef} className="space-y-4">
@@ -711,33 +687,35 @@ export function RevenueFund({
                           {formatCurrency(exp.amount)}
                         </span>
 
-                        {/* Actions */}
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button onClick={() => handleEdit(exp)}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-ice transition-colors"
-                            style={{ background: 'rgba(255,255,255,0.04)' }}>
-                            <Pencil size={13} />
-                          </button>
-                          {confirmDelete === exp.id ? (
-                            <div className="flex items-center gap-1">
-                              <button onClick={() => handleDelete(exp.id)} disabled={deletingId === exp.id}
-                                className="px-2 py-1 rounded-lg font-body text-[11px] font-semibold text-white bg-danger/80 hover:bg-danger transition-colors">
-                                {deletingId === exp.id ? '…' : 'Delete'}
-                              </button>
-                              <button onClick={() => setConfirmDelete(null)}
-                                className="px-2 py-1 rounded-lg font-body text-[11px] text-slate-400 hover:text-white transition-colors"
-                                style={{ background: 'rgba(255,255,255,0.06)' }}>
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <button onClick={() => setConfirmDelete(exp.id)}
-                              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-danger transition-colors"
+                        {/* Actions — head/owner only */}
+                        {isHeadOrOwner && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button onClick={() => handleEdit(exp)}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-ice transition-colors"
                               style={{ background: 'rgba(255,255,255,0.04)' }}>
-                              <Trash2 size={13} />
+                              <Pencil size={13} />
                             </button>
-                          )}
-                        </div>
+                            {confirmDelete === exp.id ? (
+                              <div className="flex items-center gap-1">
+                                <button onClick={() => handleDelete(exp.id)} disabled={deletingId === exp.id}
+                                  className="px-2 py-1 rounded-lg font-body text-[11px] font-semibold text-white bg-danger/80 hover:bg-danger transition-colors">
+                                  {deletingId === exp.id ? '…' : 'Delete'}
+                                </button>
+                                <button onClick={() => setConfirmDelete(null)}
+                                  className="px-2 py-1 rounded-lg font-body text-[11px] text-slate-400 hover:text-white transition-colors"
+                                  style={{ background: 'rgba(255,255,255,0.06)' }}>
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button onClick={() => setConfirmDelete(exp.id)}
+                                className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-danger transition-colors"
+                                style={{ background: 'rgba(255,255,255,0.04)' }}>
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )
                   })}

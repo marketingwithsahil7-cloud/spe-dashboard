@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
 import { supabase } from '../lib/supabase'
-import type { Event, EventAvailability, AvailabilityStatus } from '../types/index'
+import type { Event, EventAvailability, AvailabilityStatus, Student } from '../types/index'
 
 // ─── Extended types ───────────────────────────────────────────────────────────
 
@@ -62,6 +62,35 @@ export function generateBroadcastMessage(event: Event): string {
     'Reply 3 — Maybe 🤔',
     '',
     '— Soccer Pro Elite Academy',
+  )
+  return lines.join('\n')
+}
+
+// Personal "you've been selected" message sent to one parent about one student —
+// distinct from generateBroadcastMessage (a single message for the whole group).
+export function generateEventNotifyMessage(student: Student, event: Event): string {
+  const parentName = student.parent_name || 'Parent'
+  const typeLabel = event.type === 'tournament' ? 'Tournament' : event.type === 'friendly' ? 'Friendly Match' : 'Event'
+  const dateStr = event.date ? format(new Date(event.date), 'd MMM yyyy') : 'TBD'
+
+  const lines = [
+    `Dear ${parentName},`,
+    '',
+    `We would like to inform you that *${student.name}* has been selected for an upcoming event at Soccer Pro Elite Football Academy.`,
+    '',
+    `*Event Details:*`,
+    `📌 Event: ${event.title}`,
+    `🏆 Type: ${typeLabel}`,
+    `📅 Date: ${dateStr}`,
+    `📍 Location: ${event.location || 'TBD'}`,
+  ]
+  if (event.details) lines.push(`ℹ️ ${event.details}`)
+  lines.push(
+    '',
+    `Please confirm if *${student.name}* will be available for this event by replying YES or NO to this message.`,
+    '',
+    `Thank you!`,
+    `Soccer Pro Elite Football Academy`,
   )
   return lines.join('\n')
 }

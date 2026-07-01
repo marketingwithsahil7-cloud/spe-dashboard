@@ -18,6 +18,7 @@ import LoginPage from './pages/LoginPage'
 const DashboardPage      = lazy(() => import('./pages/DashboardPage'))
 const StudentsPage       = lazy(() => import('./pages/StudentsPage'))
 const StudentProfilePage = lazy(() => import('./pages/StudentProfilePage'))
+const TeamListPage       = lazy(() => import('./pages/TeamListPage'))
 const AttendancePage     = lazy(() => import('./pages/AttendancePage'))
 const FeesPage           = lazy(() => import('./pages/FeesPage'))
 const TrialsPage         = lazy(() => import('./pages/TrialsPage'))
@@ -104,6 +105,10 @@ function AppInner() {
             </Route>
 
             {/* Accessible to all coaches */}
+            <Route
+              path={ROUTES.TEAM_LIST}
+              element={<Suspense fallback={<PageSkeleton />}><TeamListPage /></Suspense>}
+            />
             <Route
               path={ROUTES.ATTENDANCE}
               element={<Suspense fallback={<PageSkeleton />}><AttendancePage /></Suspense>}

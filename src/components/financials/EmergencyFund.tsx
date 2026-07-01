@@ -102,10 +102,11 @@ function BalanceHero({ balance }: { balance: EmergencyFundBalance }) {
 // ─── Pending repayment card ───────────────────────────────────────────────────
 
 function PendingRepaymentCard({
-  tx, onMarkRepaid,
+  tx, onMarkRepaid, isHeadOrOwner,
 }: {
-  tx:           EmergencyFundTransactionWithCoach
-  onMarkRepaid: (id: string, amount: number, date: string) => Promise<void>
+  tx:            EmergencyFundTransactionWithCoach
+  onMarkRepaid:  (id: string, amount: number, date: string) => Promise<void>
+  isHeadOrOwner: boolean
 }) {
   const [open,     setOpen]    = useState(false)
   const [amount,   setAmount]  = useState(String(tx.amount))
@@ -160,17 +161,19 @@ function PendingRepaymentCard({
         </div>
         <div className="text-right shrink-0">
           <p className="font-display text-lg font-bold text-danger">{formatCurrency(tx.amount)}</p>
-          <button
-            onClick={() => setOpen(o => !o)}
-            className="font-body text-xs font-semibold text-grass hover:text-grassDim transition-colors mt-1"
-          >
-            {open ? 'Cancel' : 'Mark Repaid'}
-          </button>
+          {isHeadOrOwner && (
+            <button
+              onClick={() => setOpen(o => !o)}
+              className="font-body text-xs font-semibold text-grass hover:text-grassDim transition-colors mt-1"
+            >
+              {open ? 'Cancel' : 'Mark Repaid'}
+            </button>
+          )}
         </div>
       </div>
 
       {/* Inline repayment form */}
-      {open && (
+      {open && isHeadOrOwner && (
         <div className="mt-3 pt-3 space-y-3" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
@@ -478,6 +481,7 @@ interface EmergencyFundProps {
   balance:             EmergencyFundBalance
   coaches:             { id: string; name: string }[]
   isLoading:           boolean
+  isHeadOrOwner:       boolean
   onAddTransaction:    (data: EmergencyTxInput) => Promise<void>
   onMarkRepaid:        (id: string, amount: number, date: string) => Promise<void>
 }
@@ -489,7 +493,7 @@ const TX_FILTER_TABS: { key: TxFilter; label: string }[] = [
 ]
 
 export function EmergencyFund({
-  transactions, balance, coaches, isLoading, onAddTransaction, onMarkRepaid,
+  transactions, balance, coaches, isLoading, isHeadOrOwner, onAddTransaction, onMarkRepaid,
 }: EmergencyFundProps) {
   const listRef      = useRef<HTMLDivElement>(null)
   const pendingRef   = useRef<HTMLDivElement>(null)
@@ -554,7 +558,7 @@ export function EmergencyFund({
           </div>
           <div ref={pendingRef} className="space-y-3">
             {balance.pendingRepayments.map(tx => (
-              <PendingRepaymentCard key={tx.id} tx={tx} onMarkRepaid={onMarkRepaid} />
+              <PendingRepaymentCard key={tx.id} tx={tx} onMarkRepaid={onMarkRepaid} isHeadOrOwner={isHeadOrOwner} />
             ))}
           </div>
         </div>
@@ -566,13 +570,15 @@ export function EmergencyFund({
           <h3 className="font-display text-sm font-semibold text-white uppercase tracking-wider">
             Transaction History
           </h3>
-          <Button
-            variant="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setDrawerOpen(true)}
-          >
-            Add Transaction
-          </Button>
+          {isHeadOrOwner && (
+            <Button
+              variant="primary"
+              icon={<Plus size={14} />}
+              onClick={() => setDrawerOpen(true)}
+            >
+              Add Transaction
+            </Button>
+          )}
         </div>
 
         {/* Filter tabs */}

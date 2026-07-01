@@ -8,6 +8,7 @@ import { EventCard } from '../components/events/EventCard'
 import { EventForm } from '../components/events/EventForm'
 import { AvailabilityTracker } from '../components/events/AvailabilityTracker'
 import { Skeleton } from '../components/ui/Skeleton'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import type { EventWithAvailability } from '../hooks/useEvents'
 import type { EventType } from '../types/index'
 
@@ -86,7 +87,7 @@ export default function EventsPage() {
   const gridRef  = useRef<HTMLDivElement>(null)
 
   const { canManageEvents } = usePermissions()
-  const { events, totalStudents, isLoading, error, addEvent, updateEvent, updateAvailability, refetch } = useEvents()
+  const { events, totalStudents, isLoading, error, addEvent, updateEvent, deleteEvent, updateAvailability, refetch } = useEvents()
 
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('upcoming')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
@@ -95,6 +96,8 @@ export default function EventsPage() {
   const [editTarget,     setEditTarget]     = useState<EventWithAvailability | null>(null)
   const [trackerEvent,   setTrackerEvent]   = useState<EventWithAvailability | null>(null)
   const [trackerOpen,    setTrackerOpen]    = useState(false)
+  const [deleteTarget,   setDeleteTarget]   = useState<EventWithAvailability | null>(null)
+  const [deleting,       setDeleting]       = useState(false)
 
   const todayStr = format(new Date(), 'yyyy-MM-dd')
 
@@ -162,6 +165,19 @@ export default function EventsPage() {
   function handleTrackerClose() {
     setTrackerOpen(false)
     refetch()
+  }
+
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await deleteEvent(deleteTarget.id)
+      setDeleteTarget(null)
+    } catch {
+      // ConfirmDialog stays open — coach can retry
+    } finally {
+      setDeleting(false)
+    }
   }
 
   if (error) {
@@ -301,6 +317,7 @@ export default function EventsPage() {
                 totalStudents={totalStudents}
                 onViewAvailability={handleTrackerOpen}
                 onEdit={handleEdit}
+                onDelete={setDeleteTarget}
               />
             ))}
           </div>
@@ -334,6 +351,17 @@ export default function EventsPage() {
         isOpen={trackerOpen}
         onClose={handleTrackerClose}
         updateAvailability={updateAvailability}
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title={`Delete "${deleteTarget?.title ?? ''}"?`}
+        description="This permanently removes the event and all recorded player availability. This cannot be undone."
+        confirmLabel="Delete Event"
+        variant="danger"
+        loading={deleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
       />
     </>
   )

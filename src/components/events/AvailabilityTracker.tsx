@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Check, Copy, ChevronDown, ChevronUp, MessageCircle } from 'lucide-react'
+import { Check, Copy, ChevronDown, ChevronUp, MessageCircle, Send } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { generateBroadcastMessage } from '../../hooks/useEvents'
+import { generateBroadcastMessage, generateEventNotifyMessage } from '../../hooks/useEvents'
 import { Drawer } from '../ui/Drawer'
 import { Avatar } from '../ui/Avatar'
+import { Button } from '../ui/Button'
 import { Skeleton } from '../ui/Skeleton'
-import { cn, formatDate } from '../../lib/utils'
+import { cn, formatDate, formatPhone, toWhatsAppPhone } from '../../lib/utils'
 import { getAgeCategory, AGE_CATEGORIES } from '../../lib/ageCategories'
 import type { AgeCategory } from '../../lib/ageCategories'
 import type { Student, AvailabilityStatus } from '../../types/index'
@@ -319,6 +320,113 @@ function MessageByCategory({
   )
 }
 
+// ─── Notify parents (personal WhatsApp per student) ──────────────────────────
+
+// Maps an event's stored age_category (which has drifted across a few casings/
+// values over time — 'U10'/'u10'/'all'/null) onto the AgeCategory type, or
+// 'all' for no restriction.
+function getEventAgeTarget(ageCategory: string | null): AgeCategory | 'all' {
+  if (!ageCategory) return 'all'
+  const norm = ageCategory.toLowerCase()
+  if (norm === 'u10') return 'U10'
+  if (norm === 'u15') return 'U15'
+  if (norm === 'open') return 'Open'
+  return 'all'
+}
+
+function NotifyParentsSection({ event, students }: { event: EventWithAvailability; students: Student[] }) {
+  const [sending,  setSending]  = useState(false)
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null)
+
+  const targetCategory = useMemo(() => getEventAgeTarget(event.age_category), [event.age_category])
+
+  const targetStudents = useMemo(() => {
+    if (targetCategory === 'all') return students
+    return students.filter(s => getAgeCategory(s.dob) === targetCategory)
+  }, [students, targetCategory])
+
+  function openWhatsApp(student: Student) {
+    if (!student.parent_phone) return
+    const message = generateEventNotifyMessage(student, event)
+    const url = `https://wa.me/${toWhatsAppPhone(student.parent_phone)}?text=${encodeURIComponent(message)}`
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  function handleSendAll() {
+    const eligible = targetStudents.filter(s => !!s.parent_phone)
+    if (eligible.length === 0 || sending) return
+    setSending(true)
+    let i = 0
+    const openNext = () => {
+      if (i >= eligible.length) {
+        setSending(false)
+        setProgress(null)
+        return
+      }
+      setProgress({ current: i + 1, total: eligible.length })
+      openWhatsApp(eligible[i])
+      i++
+      setTimeout(openNext, 800)
+    }
+    openNext()
+  }
+
+  return (
+    <div
+      className="rounded-2xl overflow-hidden"
+      style={{ border: '1px solid rgba(0,255,135,0.15)', background: 'rgba(0,255,135,0.03)' }}
+    >
+      <div className="flex items-center justify-between gap-3 px-4 py-3 flex-wrap" style={{ borderBottom: '1px solid rgba(0,255,135,0.08)' }}>
+        <span className="font-display text-xs font-semibold text-grass uppercase tracking-widest">
+          Notify Parents ({targetStudents.length} students)
+        </span>
+        <Button
+          size="sm"
+          variant="primary"
+          icon={<Send size={12} />}
+          disabled={sending || targetStudents.length === 0}
+          onClick={handleSendAll}
+        >
+          {sending && progress ? `Opening ${progress.current} of ${progress.total}…` : 'Send to All'}
+        </Button>
+      </div>
+
+      {targetStudents.length === 0 ? (
+        <p className="px-4 py-6 text-center font-body text-sm text-slate-500">
+          No students match this event's age category
+        </p>
+      ) : (
+        <div>
+          {targetStudents.map(student => (
+            <div
+              key={student.id}
+              className="flex items-center justify-between gap-3 px-4 py-3"
+              style={{ borderTop: '1px solid rgba(0,255,135,0.06)' }}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="font-body text-sm text-white font-medium truncate">{student.name}</p>
+                <p className="font-body text-xs text-slate-500 truncate">
+                  {student.parent_name ?? 'Parent'} · {student.parent_phone ? formatPhone(student.parent_phone) : 'No phone on file'}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="primary"
+                icon={<MessageCircle size={12} />}
+                disabled={!student.parent_phone}
+                onClick={() => openWhatsApp(student)}
+                className="shrink-0"
+              >
+                Send Message ↗
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface AvailabilityTrackerProps {
@@ -402,6 +510,9 @@ export function AvailabilityTracker({ event, isOpen, onClose, updateAvailability
             <p className="font-body text-xs text-slate-500">{event.location}</p>
           )}
         </div>
+
+        {/* Notify parents — personal WhatsApp per selected student */}
+        <NotifyParentsSection event={event} students={students} />
 
         {/* Summary chips */}
         <SummaryChips

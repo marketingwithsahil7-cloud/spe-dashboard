@@ -1,12 +1,14 @@
 import { useState, lazy, Suspense } from 'react'
-import { format, differenceInDays } from 'date-fns'
+import { format, differenceInDays, subMonths } from 'date-fns'
 import { Wallet, TrendingUp, ShieldAlert, StickyNote, AlertTriangle, Clock, Download, Loader2 } from 'lucide-react'
 import { PageGlow } from '../components/ui/PageGlow'
 import { cn, formatCurrency } from '../lib/utils'
 import { useFinancials } from '../hooks/useFinancials'
+import { usePermissions } from '../hooks/usePermissions'
 import { RevenueFund } from '../components/financials/RevenueFund'
 import { EmergencyFund } from '../components/financials/EmergencyFund'
 import { FinancialNotes } from '../components/financials/FinancialNotes'
+import { MonthSelector } from '../components/fees/MonthSelector'
 const AmbientBackground = lazy(() => import('../components/ui/AmbientBackground'))
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
@@ -68,10 +70,15 @@ function PersonalAdvanceAlert({ advances }: { advances: PendingAdvance[] }) {
 
 export default function FinancialsPage() {
   const today = new Date()
+  const { isHeadOrOwner } = usePermissions()
+
   const [activeTab,        setActiveTab]        = useState<Tab>('revenue')
-  const [filterMonth,      setFilterMonth]      = useState(today.getMonth() + 1)
-  const [filterYear,       setFilterYear]       = useState(today.getFullYear())
+  const [selectedMonth,    setSelectedMonth]    = useState(() => format(today, 'yyyy-MM'))
   const [isGeneratingPdf,  setIsGeneratingPdf]  = useState(false)
+
+  const minMonth   = format(subMonths(today, 11), 'yyyy-MM') // 12-month range including current
+  const filterYear  = Number(selectedMonth.split('-')[0])
+  const filterMonth = Number(selectedMonth.split('-')[1])
 
   const handleDownloadReport = async () => {
     setIsGeneratingPdf(true)
@@ -127,7 +134,9 @@ export default function FinancialsPage() {
               Financials
             </h1>
           </div>
-          <p className="font-body text-sm text-slate-400">{format(today, 'MMMM yyyy')}</p>
+          <div className="mt-2">
+            <MonthSelector value={selectedMonth} onChange={setSelectedMonth} min={minMonth} />
+          </div>
         </div>
 
         {/* Quick stat chips + Download button */}
@@ -162,19 +171,21 @@ export default function FinancialsPage() {
             </span>
           </div>
 
-          {/* Download Monthly Report */}
-          <button
-            onClick={handleDownloadReport}
-            disabled={isGeneratingPdf}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl font-display text-xs font-semibold uppercase tracking-wider text-pitch bg-grass transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ boxShadow: isGeneratingPdf ? 'none' : '0 0 16px rgba(0,255,135,0.25)' }}
-            title={`Download ${format(new Date(filterYear, filterMonth - 1, 1), 'MMMM yyyy')} Report`}
-          >
-            {isGeneratingPdf
-              ? <><Loader2 size={12} className="animate-spin" />Generating…</>
-              : <><Download size={12} />Report</>
-            }
-          </button>
+          {/* Download Monthly Report — head/owner only */}
+          {isHeadOrOwner && (
+            <button
+              onClick={handleDownloadReport}
+              disabled={isGeneratingPdf}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl font-display text-xs font-semibold uppercase tracking-wider text-pitch bg-grass transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ boxShadow: isGeneratingPdf ? 'none' : '0 0 16px rgba(0,255,135,0.25)' }}
+              title={`Download ${format(new Date(filterYear, filterMonth - 1, 1), 'MMMM yyyy')} Report`}
+            >
+              {isGeneratingPdf
+                ? <><Loader2 size={12} className="animate-spin" />Generating…</>
+                : <><Download size={12} />Report</>
+              }
+            </button>
+          )}
         </div>
       </div>
 
@@ -233,12 +244,10 @@ export default function FinancialsPage() {
           expenses={expenses}
           summary={revenueSummary}
           trend={monthlyTrend}
-          filterMonth={filterMonth}
-          filterYear={filterYear}
           headCoaches={headCoaches}
           coaches={coaches}
-          onFilterChange={(m, y) => { setFilterMonth(m); setFilterYear(y) }}
           isLoading={isLoading}
+          isHeadOrOwner={isHeadOrOwner}
           onAddExpense={addExpense}
           onUpdateExpense={updateExpense}
           onDeleteExpense={deleteExpense}
@@ -251,6 +260,7 @@ export default function FinancialsPage() {
           balance={emergencyBalance}
           coaches={coaches}
           isLoading={isLoading}
+          isHeadOrOwner={isHeadOrOwner}
           onAddTransaction={addEmergencyTransaction}
           onMarkRepaid={markRepaid}
         />
@@ -259,6 +269,7 @@ export default function FinancialsPage() {
       {activeTab === 'notes' && (
         <FinancialNotes
           notes={notes}
+          isHeadOrOwner={isHeadOrOwner}
           isLoading={isLoading}
           onAdd={addNote}
           onDelete={deleteNote}

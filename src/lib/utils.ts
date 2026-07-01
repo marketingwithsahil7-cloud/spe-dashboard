@@ -12,6 +12,17 @@ export function formatDate(date: string | Date | null | undefined): string {
   return format(d, 'd MMM yyyy')
 }
 
+// Normalizes a stored phone number into the bare digit string wa.me expects
+// (919XXXXXXXXX) — handles a leading 0 (drop it, prepend 91), an already-present
+// country code (91 or +91, left as-is), or a bare 10-digit number (prepend 91).
+export function toWhatsAppPhone(phone: string): string {
+  let cleaned = phone.replace(/[\s-]/g, '')
+  if (cleaned.startsWith('+')) cleaned = cleaned.slice(1)
+  if (cleaned.startsWith('0')) cleaned = '91' + cleaned.slice(1)
+  else if (!cleaned.startsWith('91')) cleaned = '91' + cleaned
+  return cleaned
+}
+
 export function formatPhone(phone: string): string {
   const cleaned = phone.replace(/\D/g, '')
   if (cleaned.startsWith('91') && cleaned.length === 12) {

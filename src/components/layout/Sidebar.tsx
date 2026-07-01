@@ -14,6 +14,7 @@ import { useAcademySettings } from '../../hooks/useAcademySettings'
 const NAV_ITEMS: { label: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>; path: string; permKey: keyof Permissions }[] = [
   { label: 'Dashboard',  icon: LayoutDashboard, path: ROUTES.DASHBOARD,  permKey: 'canSeeDashboard' },
   { label: 'Students',   icon: Users,           path: ROUTES.STUDENTS,   permKey: 'canSeeStudents' },
+  { label: 'Team List',  icon: Users,           path: ROUTES.TEAM_LIST,  permKey: 'canSeeTeamList' },
   { label: 'Attendance', icon: ClipboardCheck,  path: ROUTES.ATTENDANCE, permKey: 'canSeeAttendance' },
   { label: 'Fees',       icon: CreditCard,      path: ROUTES.FEES,       permKey: 'canSeeFees' },
   { label: 'Trials',     icon: UserPlus,        path: ROUTES.TRIALS,     permKey: 'canSeeTrials' },

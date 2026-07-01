@@ -1,6 +1,10 @@
 import { useAuthStore } from '../store/authStore'
 
 export interface Permissions {
+  // Generic write-access flag — use for any Add/Edit/Delete/Record button that
+  // doesn't already have a more specific semantic flag below.
+  isHeadOrOwner: boolean
+
   // Navigation visibility
   canSeeDashboard:   boolean
   canSeeStudents:    boolean
@@ -11,6 +15,7 @@ export interface Permissions {
   canSeeEvents:      boolean
   canSeeFinancials:  boolean
   canSeeSettings:    boolean
+  canSeeTeamList:    boolean
 
   // Student actions
   canAddStudent:    boolean
@@ -52,6 +57,8 @@ export function usePermissions(): Permissions {
   const owner       = isOwner()
 
   return {
+    isHeadOrOwner: headOrOwner,
+
     // Navigation — head/owner sees everything; assistant sees their areas
     canSeeDashboard:  true,          // all coaches — assistants get their own personal dashboard
     canSeeStudents:   headOrOwner,
@@ -60,8 +67,9 @@ export function usePermissions(): Permissions {
     canSeeTrials:     headOrOwner,
     canSeeCoaches:    true,          // both — but different views
     canSeeEvents:     true,
-    canSeeFinancials: headOrOwner,
+    canSeeFinancials: true,          // view-only for assistants; writes gated per-action below
     canSeeSettings:   true,          // all coaches see Settings tab (different content by role)
+    canSeeTeamList:   true,          // pure read-only roster, all coaches
 
     // Student actions — head/owner only
     canAddStudent:    headOrOwner,

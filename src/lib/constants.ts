@@ -15,6 +15,7 @@ export const ROUTES = {
   LOGIN:      '/login',
   DASHBOARD:  '/dashboard',
   STUDENTS:   '/students',
+  TEAM_LIST:  '/team-list',
   ATTENDANCE: '/attendance',
   FEES:       '/fees',
   TRIALS:     '/trials',

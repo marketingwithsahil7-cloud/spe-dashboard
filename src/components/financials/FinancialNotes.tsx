@@ -7,15 +7,16 @@ import type { FinancialNoteWithAuthor } from '../../hooks/useFinancials'
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface FinancialNotesProps {
-  notes:      FinancialNoteWithAuthor[]
-  isLoading:  boolean
-  onAdd:      (content: string) => Promise<void>
-  onDelete:   (id: string) => Promise<void>
+  notes:         FinancialNoteWithAuthor[]
+  isLoading:     boolean
+  isHeadOrOwner: boolean
+  onAdd:         (content: string) => Promise<void>
+  onDelete:      (id: string) => Promise<void>
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function FinancialNotes({ notes, isLoading, onAdd, onDelete }: FinancialNotesProps) {
+export function FinancialNotes({ notes, isLoading, isHeadOrOwner, onAdd, onDelete }: FinancialNotesProps) {
   const [draft,        setDraft]        = useState('')
   const [saving,       setSaving]       = useState(false)
   const [deletingId,   setDeletingId]   = useState<string | null>(null)
@@ -70,42 +71,44 @@ export function FinancialNotes({ notes, isLoading, onAdd, onDelete }: FinancialN
   return (
     <div className="space-y-5">
 
-      {/* ── Add note ──────────────────────────────────────────────────────── */}
-      <div className="glass rounded-2xl p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <StickyNote size={15} className="text-grass" />
-          <span className="font-display text-sm font-semibold text-white uppercase tracking-wider">Add Note</span>
+      {/* ── Add note — head/owner only ───────────────────────────────────── */}
+      {isHeadOrOwner && (
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <StickyNote size={15} className="text-grass" />
+            <span className="font-display text-sm font-semibold text-white uppercase tracking-wider">Add Note</span>
+          </div>
+          <textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Write a financial observation, reminder, or note… (Ctrl+Enter to save)"
+            rows={3}
+            className={inputCls}
+          />
+          {saveError && (
+            <p className="font-body text-xs text-danger">{saveError}</p>
+          )}
+          <div className="flex justify-end">
+            <button
+              onClick={handleAdd}
+              disabled={saving || !draft.trim()}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 rounded-xl font-body text-sm font-semibold transition-all duration-150',
+                draft.trim() && !saving
+                  ? 'text-pitch bg-grass hover:bg-grassDim shadow-[0_0_12px_rgba(0,255,135,0.2)]'
+                  : 'text-slate-600 cursor-not-allowed',
+              )}
+              style={!draft.trim() || saving ? { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' } : undefined}
+            >
+              {saving
+                ? <><Loader2 size={14} className="animate-spin" /> Saving…</>
+                : <><Send size={14} /> Save Note</>
+              }
+            </button>
+          </div>
         </div>
-        <textarea
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Write a financial observation, reminder, or note… (Ctrl+Enter to save)"
-          rows={3}
-          className={inputCls}
-        />
-        {saveError && (
-          <p className="font-body text-xs text-danger">{saveError}</p>
-        )}
-        <div className="flex justify-end">
-          <button
-            onClick={handleAdd}
-            disabled={saving || !draft.trim()}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-xl font-body text-sm font-semibold transition-all duration-150',
-              draft.trim() && !saving
-                ? 'text-pitch bg-grass hover:bg-grassDim shadow-[0_0_12px_rgba(0,255,135,0.2)]'
-                : 'text-slate-600 cursor-not-allowed',
-            )}
-            style={!draft.trim() || saving ? { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' } : undefined}
-          >
-            {saving
-              ? <><Loader2 size={14} className="animate-spin" /> Saving…</>
-              : <><Send size={14} /> Save Note</>
-            }
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* ── Notes list ────────────────────────────────────────────────────── */}
       {notes.length === 0 ? (
@@ -128,35 +131,37 @@ export function FinancialNotes({ notes, isLoading, onAdd, onDelete }: FinancialN
                   {note.content}
                 </p>
 
-                {/* Delete */}
-                <div className="shrink-0">
-                  {confirmId === note.id ? (
-                    <div className="flex items-center gap-1.5">
+                {/* Delete — head/owner only */}
+                {isHeadOrOwner && (
+                  <div className="shrink-0">
+                    {confirmId === note.id ? (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleDelete(note.id)}
+                          disabled={deletingId === note.id}
+                          className="px-2 py-1 rounded-lg font-body text-[11px] font-semibold text-white bg-danger/80 hover:bg-danger transition-colors"
+                        >
+                          {deletingId === note.id ? '…' : 'Delete'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmId(null)}
+                          className="px-2 py-1 rounded-lg font-body text-[11px] text-slate-400 hover:text-white transition-colors"
+                          style={{ background: 'rgba(255,255,255,0.06)' }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
                       <button
-                        onClick={() => handleDelete(note.id)}
-                        disabled={deletingId === note.id}
-                        className="px-2 py-1 rounded-lg font-body text-[11px] font-semibold text-white bg-danger/80 hover:bg-danger transition-colors"
+                        onClick={() => setConfirmId(note.id)}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-600 hover:text-danger transition-colors"
+                        style={{ background: 'rgba(255,255,255,0.04)' }}
                       >
-                        {deletingId === note.id ? '…' : 'Delete'}
+                        <Trash2 size={13} />
                       </button>
-                      <button
-                        onClick={() => setConfirmId(null)}
-                        className="px-2 py-1 rounded-lg font-body text-[11px] text-slate-400 hover:text-white transition-colors"
-                        style={{ background: 'rgba(255,255,255,0.06)' }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmId(note.id)}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-600 hover:text-danger transition-colors"
-                      style={{ background: 'rgba(255,255,255,0.04)' }}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Meta */}

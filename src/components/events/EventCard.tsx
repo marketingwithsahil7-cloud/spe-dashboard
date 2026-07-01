@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { differenceInDays } from 'date-fns'
-import { MapPin, Calendar, Copy, Check, Edit2, BarChart2 } from 'lucide-react'
+import { MapPin, Calendar, Copy, Check, Edit2, BarChart2, Trash2 } from 'lucide-react'
 import { gsap } from '../../lib/animations'
 import { generateBroadcastMessage } from '../../hooks/useEvents'
 import { Button } from '../ui/Button'
@@ -15,6 +15,7 @@ interface EventCardProps {
   totalStudents:      number
   onViewAvailability: (event: EventWithAvailability) => void
   onEdit:             (event: EventWithAvailability) => void
+  onDelete:           (event: EventWithAvailability) => void
 }
 
 // ─── Type badge ───────────────────────────────────────────────────────────────
@@ -102,7 +103,7 @@ function AvailSummary({ available, notAvailable, maybe, noResponse, total }: Ava
 
 // ─── Main card ────────────────────────────────────────────────────────────────
 
-export function EventCard({ event, totalStudents, onViewAvailability, onEdit }: EventCardProps) {
+export function EventCard({ event, totalStudents, onViewAvailability, onEdit, onDelete }: EventCardProps) {
   const cardRef    = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState(false)
   const { canManageEvents } = usePermissions()
@@ -281,6 +282,17 @@ export function EventCard({ event, totalStudents, onViewAvailability, onEdit }: 
               onClick={() => onEdit(event)}
             >
               Edit
+            </Button>
+          )}
+          {canManageEvents && (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<Trash2 size={13} />}
+              className="text-xs text-danger hover:text-danger"
+              onClick={() => onDelete(event)}
+            >
+              Delete
             </Button>
           )}
         </div>
