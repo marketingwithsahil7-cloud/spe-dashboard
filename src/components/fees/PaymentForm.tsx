@@ -4,7 +4,6 @@ import {
   IndianRupee, Loader2, CheckCircle2, AlertCircle,
   MessageCircle, X, Share2,
 } from 'lucide-react'
-import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
 import { Drawer } from '../ui/Drawer'
 import { Avatar } from '../ui/Avatar'
@@ -15,7 +14,7 @@ import { PAYMENT_MODES } from '../../lib/constants'
 import type { PaymentInput } from '../../hooks/usePayments'
 import type { StudentWithFee } from '../../hooks/useStudents'
 import type { Payment, PaymentMode } from '../../types/index'
-import { getAgeCategory } from '../../lib/ageCategories'
+import { buildInvoice, type InvoiceResult } from '../../lib/invoiceHelpers'
 import { sharePdfFile } from '../../lib/sharePdf'
 import { useToast } from '../ui/Toast'
 
@@ -30,12 +29,6 @@ interface PaymentFormProps {
   // opened this drawer — pre-selects "For Month" so recording a missed past
   // month's fee doesn't require an extra manual dropdown change every time.
   defaultMonth?: string
-}
-
-interface InvoiceResult {
-  pdfUrl:      string
-  whatsappUrl: string
-  pdfBlob:     Blob
 }
 
 // Month options: last 6 months, plus defaultMonth if it falls outside that window
@@ -60,85 +53,6 @@ const MODE_LABELS: Record<PaymentMode, string> = {
   cash:   'Cash',
   upi:    'UPI',
   online: 'Online',
-}
-
-// ─── Invoice generator (lazy) ─────────────────────────────────────────────────
-
-async function buildInvoice(
-  payment: Payment,
-  student: StudentWithFee,
-  coachName: string,
-): Promise<InvoiceResult> {
-  // Fetch academy name (cheap single-row query)
-  const { data: settings } = await supabase
-    .from('academy_settings')
-    .select('academy_name')
-    .single()
-  const academyName = settings?.academy_name ?? 'Soccer Pro Elite Football Academy'
-
-  const ageLabel = student.dob ? getAgeCategory(student.dob) : null
-
-  // Next due date: compute from billing_cycle_day for NEXT month (since this month is now paid)
-  const today = new Date()
-  const day   = student.billing_cycle_day ?? 1
-  const nm    = today.getMonth() === 11 ? 0 : today.getMonth() + 1
-  const ny    = today.getMonth() === 11 ? today.getFullYear() + 1 : today.getFullYear()
-  const nextDue = format(new Date(ny, nm, day), 'yyyy-MM-dd')
-
-  // Dynamically import to keep jsPDF out of initial bundle
-  const { generateInvoice } = await import('../../lib/generateInvoice')
-
-  const blob = await generateInvoice({
-    paymentId:   payment.id,
-    studentName: student.name,
-    parentName:  student.parent_name,
-    parentPhone: student.parent_phone,
-    batch:       student.batch,
-    ageLabel:    ageLabel ?? null,
-    amount:      payment.amount,
-    paidDate:    payment.paid_date,
-    mode:        payment.mode,
-    forCycle:    payment.for_cycle,
-    nextDueDate: nextDue,
-    coachName,
-    academyName,
-  })
-
-  // Upload to Supabase storage
-  const path = `${payment.id}.pdf`
-  await supabase.storage
-    .from('payment-invoices')
-    .upload(path, blob, { contentType: 'application/pdf', upsert: true })
-
-  const { data: urlData } = supabase.storage
-    .from('payment-invoices')
-    .getPublicUrl(path)
-
-  const pdfUrl = urlData.publicUrl
-
-  const forMonth = payment.for_cycle
-    ? format(new Date(payment.for_cycle + '-01'), 'MMMM yyyy')
-    : 'this month'
-
-  const phone = student.parent_phone?.replace(/\D/g, '') ?? ''
-  const waPhone = phone.startsWith('91') ? phone : `91${phone}`
-
-  const msg = [
-    `Hello ${student.parent_name ?? student.name},`,
-    ``,
-    `✅ Payment received for ${student.name}`,
-    `Amount: ₹${payment.amount.toLocaleString('en-IN')} | ${forMonth}`,
-    ``,
-    `View your receipt here:`,
-    pdfUrl,
-    ``,
-    `Thank you!`,
-    `— ${academyName} ⚽`,
-  ].join('\n')
-
-  const whatsappUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`
-
-  return { pdfUrl, whatsappUrl, pdfBlob: blob }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -194,25 +108,39 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
     onClose()
   }
 
+  // A filled-in note means "this student isn't paying this month, here's why" —
+  // no payment is recorded, the reason is saved instead and the fee is excluded
+  // from revenue (amount stored as 0).
+  const isReasonMode = note.trim().length > 0
+
   const handleSubmit = async () => {
     if (!student) return
-    const parsed = parseFloat(amount)
-    if (!amount || isNaN(parsed) || parsed <= 0) {
-      setError('Enter a valid amount')
-      return
+
+    let parsed = 0
+    if (!isReasonMode) {
+      parsed = parseFloat(amount)
+      if (!amount || isNaN(parsed) || parsed <= 0) {
+        setError('Enter a valid amount')
+        return
+      }
     }
+
     setSaving(true)
     setError(null)
     try {
       const payment = await onSave({
-        student_id: student.id,
-        amount:     parsed,
-        paid_date:  paidDate,
-        for_cycle:  forCycle,
-        mode,
-        note:       note.trim() || null,
+        student_id:     student.id,
+        amount:         parsed,
+        paid_date:      paidDate,
+        for_cycle:      forCycle,
+        mode:           isReasonMode ? null : mode,
+        note:           note.trim() || null,
+        is_reason_only: isReasonMode,
       })
       setShowSuccess(true)
+
+      // Reason-only entries aren't real payments — no invoice to generate.
+      if (isReasonMode) return
 
       // Generate invoice in background — non-blocking
       setInvoiceLoading(true)
@@ -267,7 +195,7 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
   // ── Success state footer ───────────────────────────────────────────────────
   const successFooter = (
     <div className="flex flex-col gap-2">
-      {invoiceLoading ? (
+      {isReasonMode ? null : invoiceLoading ? (
         <div className="flex items-center gap-2 justify-center py-2 text-slate-400">
           <Loader2 size={14} className="animate-spin" />
           <span className="font-body text-xs">Generating invoice…</span>
@@ -316,9 +244,9 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
         className="flex-1"
         icon={saving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
         onClick={handleSubmit}
-        disabled={saving || !amount}
+        disabled={saving || (!isReasonMode && !amount)}
       >
-        {saving ? 'Saving…' : 'Record Payment'}
+        {saving ? 'Saving…' : isReasonMode ? 'Save Reason' : 'Record Payment'}
       </Button>
     </div>
   )
@@ -327,7 +255,7 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
     <Drawer
       isOpen={isOpen}
       onClose={handleClose}
-      title={showSuccess ? 'Payment Recorded' : 'Record Payment'}
+      title={showSuccess ? (isReasonMode ? 'Reason Saved' : 'Payment Recorded') : (isReasonMode ? 'Save Reason' : 'Record Payment')}
       width="400px"
       footer={showSuccess ? successFooter : formFooter}
     >
@@ -347,10 +275,18 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
           </div>
 
           <div>
-            <p className="font-display text-2xl font-bold text-grass">
-              ₹{parseFloat(amount).toLocaleString('en-IN')}
+            {isReasonMode ? (
+              <p className="font-display text-lg font-bold text-amber" style={{ color: '#FFB800' }}>
+                Not Paying This Month
+              </p>
+            ) : (
+              <p className="font-display text-2xl font-bold text-grass">
+                ₹{parseFloat(amount).toLocaleString('en-IN')}
+              </p>
+            )}
+            <p className="font-body text-sm text-white mt-1">
+              {isReasonMode ? 'Reason saved — no payment recorded' : 'Payment recorded'}
             </p>
-            <p className="font-body text-sm text-white mt-1">Payment recorded</p>
             <p className="font-body text-xs text-slate-500 mt-0.5">
               {student.name} · {forCycle ? format(new Date(forCycle + '-01'), 'MMMM yyyy') : ''}
             </p>
@@ -361,13 +297,16 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
             className="w-full rounded-2xl p-4 flex flex-col gap-2 text-left"
             style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
           >
-            {[
-              ['Date',  format(new Date(paidDate), 'd MMM yyyy')],
-              ['Mode',  MODE_LABELS[mode]],
-            ].map(([label, value]) => (
-              <div key={label} className="flex justify-between items-center">
-                <span className="font-body text-xs text-slate-500">{label}</span>
-                <span className="font-body text-xs font-semibold text-white">{value}</span>
+            {(isReasonMode
+              ? [['Reason', note.trim()]]
+              : [
+                  ['Date', format(new Date(paidDate), 'd MMM yyyy')],
+                  ['Mode', MODE_LABELS[mode]],
+                ]
+            ).map(([label, value]) => (
+              <div key={label} className="flex justify-between items-center gap-3">
+                <span className="font-body text-xs text-slate-500 shrink-0">{label}</span>
+                <span className="font-body text-xs font-semibold text-white text-right">{value}</span>
               </div>
             ))}
           </div>
@@ -410,17 +349,19 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
                 type="number"
                 value={amount}
                 onChange={e => setAmount(e.target.value)}
+                disabled={isReasonMode}
                 placeholder={student.fee_is_fixed ? String(student.monthly_fee) : 'Enter amount for this month'}
                 className={cn(
                   'w-full pl-9 pr-4 py-3 rounded-xl font-body text-sm font-semibold text-white',
                   'bg-white/[0.04] border border-white/[0.08]',
                   'focus:outline-none focus:ring-2 focus:ring-grass/40 focus:border-grass/40',
                   'transition-colors placeholder:text-slate-600',
+                  isReasonMode && 'opacity-40 cursor-not-allowed',
                 )}
               />
             </div>
 
-            {isHalfMonth && (
+            {isHalfMonth && !isReasonMode && (
               <p className="font-body text-[11px] text-amber" style={{ color: '#FFB800' }}>
                 Half month fee applied
               </p>
@@ -428,7 +369,7 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
           </div>
 
           {/* Amount type */}
-          <div className="flex flex-col gap-2">
+          <div className={cn('flex flex-col gap-2', isReasonMode && 'opacity-40 pointer-events-none')}>
             <label className="font-body text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Amount Type
             </label>
@@ -442,6 +383,7 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
                   <button
                     key={opt.label}
                     type="button"
+                    disabled={isReasonMode}
                     onClick={() => handleSetAmountType(opt.half)}
                     className={cn(
                       'py-2.5 rounded-xl font-body text-sm font-semibold transition-all duration-150',
@@ -459,7 +401,7 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
           </div>
 
           {/* Payment mode */}
-          <div className="flex flex-col gap-2">
+          <div className={cn('flex flex-col gap-2', isReasonMode && 'opacity-40 pointer-events-none')}>
             <label className="font-body text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Mode
             </label>
@@ -467,6 +409,7 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
               {PAYMENT_MODES.map(m => (
                 <button
                   key={m}
+                  disabled={isReasonMode}
                   onClick={() => setMode(m)}
                   className={cn(
                     'py-2.5 rounded-xl font-body text-sm font-semibold transition-all duration-150',
@@ -531,7 +474,7 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
               value={note}
               onChange={e => setNote(e.target.value)}
               placeholder={
-                'e.g. Student was on vacation this month\ne.g. Half month — joined mid-month\ne.g. Discount applied for sibling'
+                'Leave blank for a normal payment.\nFill this in if the student is NOT paying this month —\ne.g. Student on long vacation, discount agreed, dropped out temporarily...'
               }
               rows={3}
               className={cn(
@@ -541,9 +484,15 @@ export function PaymentForm({ student, isOpen, onClose, onSave, defaultMonth }: 
                 'transition-colors placeholder:text-slate-600 placeholder:leading-relaxed',
               )}
             />
-            <p className="font-body text-[10px] text-slate-600">
-              Visible in this student's payment history — helps explain any unusual amount.
-            </p>
+            {isReasonMode ? (
+              <p className="font-body text-[11px] text-amber leading-relaxed" style={{ color: '#FFB800' }}>
+                No payment will be recorded — this reason is saved instead and the fee is excluded from revenue.
+              </p>
+            ) : (
+              <p className="font-body text-[10px] text-slate-600">
+                Filling this in switches to "Save Reason" mode — no payment gets recorded.
+              </p>
+            )}
           </div>
 
           {/* Error */}

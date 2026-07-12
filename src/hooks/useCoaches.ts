@@ -40,6 +40,36 @@ export interface UseCoachesReturn {
   refetch: () => void
 }
 
+// ─── Session-day helpers ────────────────────────────────────────────────────
+//
+// A "session" is one DAY of coaching, not one time-slot row — a coach who
+// takes both the 5-6 PM and 6-7 PM batch on the same date has worked ONE
+// session that day, not two. All session counts and payouts must be computed
+// per unique date, never per attendance row.
+
+export function groupAttendanceByDate(atts: CoachAttendance[]): Map<string, CoachAttendance[]> {
+  const map = new Map<string, CoachAttendance[]>()
+  for (const a of atts) {
+    const list = map.get(a.date)
+    if (list) list.push(a)
+    else map.set(a.date, [a])
+  }
+  return map
+}
+
+export function countSessionDays(atts: CoachAttendance[]): number {
+  return groupAttendanceByDate(atts).size
+}
+
+// A session-day only counts as verified once every slot marked that day is verified.
+export function countVerifiedSessionDays(atts: CoachAttendance[]): number {
+  let count = 0
+  for (const records of groupAttendanceByDate(atts).values()) {
+    if (records.every(r => r.confirmed_by_coach && r.verified)) count++
+  }
+  return count
+}
+
 // ─── Standalone helpers (called on-demand by components) ──────────────────────
 
 export async function fetchCoachAttendance(
@@ -129,18 +159,20 @@ export async function fetchMonthlyPayroll(
   const atts = (data ?? []) as CoachAttendance[]
 
   return coaches.map(coach => {
-    const coachAtts   = atts.filter(a => a.coach_id === coach.id)
-    const confirmed   = coachAtts.filter(a => a.confirmed_by_coach && !a.disputed)
-    const verified    = coachAtts.filter(a => a.verified)
-    const disputed    = coachAtts.filter(a => a.disputed)
+    const coachAtts = atts.filter(a => a.coach_id === coach.id)
+    const days      = Array.from(groupAttendanceByDate(coachAtts).values())
+
+    const confirmedDays = days.filter(d => d.every(r => r.confirmed_by_coach && !r.disputed))
+    const verifiedDays  = days.filter(d => d.every(r => r.verified))
+    const disputedDays  = days.filter(d => d.some(r => r.disputed))
 
     return {
       coach,
-      totalSessions:     coachAtts.length,
-      confirmedSessions: confirmed.length,
-      verifiedSessions:  verified.length,
-      disputedSessions:  disputed.length,
-      payout:            verified.length * coach.per_session_rate,
+      totalSessions:     days.length,
+      confirmedSessions: confirmedDays.length,
+      verifiedSessions:  verifiedDays.length,
+      disputedSessions:  disputedDays.length,
+      payout:            verifiedDays.length * coach.per_session_rate,
       attendance:        coachAtts,
     }
   })
@@ -152,9 +184,10 @@ export async function calculatePayroll(
   year: number,
   perSessionRate: number,
 ): Promise<{ sessions: number; payout: number }> {
-  const atts     = await fetchCoachAttendance(coachId, month, year)
-  const verified = atts.filter(a => a.confirmed_by_coach && a.verified && !a.disputed)
-  return { sessions: verified.length, payout: verified.length * perSessionRate }
+  const atts = await fetchCoachAttendance(coachId, month, year)
+  const verifiedDays = Array.from(groupAttendanceByDate(atts).values())
+    .filter(d => d.every(r => r.confirmed_by_coach && r.verified && !r.disputed))
+  return { sessions: verifiedDays.length, payout: verifiedDays.length * perSessionRate }
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -188,12 +221,11 @@ export function useCoaches(): UseCoachesReturn {
       const atts = (attRes.data     ?? []) as CoachAttendance[]
 
       const enriched: CoachWithStats[] = raw.map(coach => {
-        const mine         = atts.filter(a => a.coach_id === coach.id)
-        const verifiedMine = mine.filter(a => a.confirmed_by_coach && a.verified)
+        const mine = atts.filter(a => a.coach_id === coach.id)
         return {
           ...coach,
-          sessionsThisMonth: mine.length,
-          earningsThisMonth: verifiedMine.length * coach.per_session_rate,
+          sessionsThisMonth: countSessionDays(mine),
+          earningsThisMonth: countVerifiedSessionDays(mine) * coach.per_session_rate,
         }
       })
 

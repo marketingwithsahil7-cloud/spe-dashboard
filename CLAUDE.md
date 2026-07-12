@@ -194,8 +194,9 @@ Card:    linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.0
 `student_id, date, batch, present` — UNIQUE(student_id, date, batch)
 
 ### payments
-`student_id, amount, paid_date, for_cycle, mode (cash/upi/online), note`
+`student_id, amount, paid_date, for_cycle, mode (cash/upi/online), note, is_reason_only`
 - `for_cycle` (e.g. `'2026-06'`) is the source of truth for fee-status computation — NOT `paid_date`'s calendar month.
+- `is_reason_only` (bool, default `false`) — set when a coach types something into the Fee Note field instead of leaving it blank. A `true` row means "student isn't paying this month, here's why" — NOT an actual payment: `amount` is stored as `0` (excluding it from revenue sums for free, since those just `SUM(amount)`), `mode` is `null`, and `note` holds the reason. The row still counts toward `for_cycle` fee-status resolution (`get_fee_status`/`computeFeeStatus` only check row existence, not amount), so the student shows as cycle-resolved rather than overdue — `FeeCard`/`PaymentList` render these distinctly ("Not Paying — Reason Given" / "No Payment" badge) instead of as a normal paid amount. See [[GOTCHAS]].
 
 ### trials
 `name, parent_phone, trial_date, status (pending/closed/not_closed/no_response), follow_up_date`
@@ -276,6 +277,7 @@ Students, Fees, and Trials pages remain fully head/owner-only (route-gated, `can
 - Status ladder: `paid` → `due_soon` (≤2 days) → `due_today` → `overdue`
 - Fee status is computed from whether a payment exists with `for_cycle = currentCycle` — never from `paid_date`'s calendar month (paying early/late must not corrupt status).
 - Flexible-fee students (`fee_is_fixed = false`): PaymentForm leaves amount blank instead of pre-filling `monthly_fee`; fee-status tracking is otherwise identical.
+- **Reason-for-not-paying**: typing anything into PaymentForm's Note field switches it into "reason mode" — Amount/Amount Type/Mode fields disable, the submit button relabels to "Save Reason", and no real payment is recorded. Instead a `payments` row is inserted with `is_reason_only = true`, `amount = 0`, `mode = null`, `note = <reason>`. Revenue sums (`SUM(amount)`) are unaffected since the row contributes 0; the student still resolves out of the overdue/due-soon buckets for that cycle (a row exists) but renders as "Not Paying — Reason Given" everywhere, not "Paid ₹X". See `is_reason_only` in section 5 and [[GOTCHAS]].
 - WhatsApp reminder: `wa.me/{phone}?text={encodeURIComponent(message)}` — 5 dynamic English scenarios (due_soon/due_today/1-3d/4-7d/7+d overdue).
 - Legacy Hindi template (superseded by dynamic English reminders): `"Namaste 🙏 {parent_name} ji, {student_name} ka is mahine ka fee ₹{amount} abhi tak pending hai. Kripya jaldi pay karein. — Soccer Pro Elite Academy"`
 
@@ -365,6 +367,12 @@ src/
   - **Events — Notify Parents**: `AvailabilityTracker.tsx` gained a `NotifyParentsSection` (visible to all roles — this is communication, not editing) between the event-meta block and the availability summary chips. Filters `useActiveStudents()` by the event's `age_category` via `getEventAgeTarget()` (see [[GOTCHAS]] on `age_category`'s inconsistent stored values), renders one row per matching student with a per-student "Send Message ↗" `wa.me` link, plus a "Send to All" button that opens links via a `setTimeout` loop with an 800ms gap (not `Promise.all` / no delay — browsers block near-simultaneous `window.open` popups) and shows "Opening X of Y…" progress. New `generateEventNotifyMessage(student, event)` in `useEvents.ts` (co-located with the existing `generateBroadcastMessage`) builds the personal "you've been selected, reply YES/NO" message; new `toWhatsAppPhone()` in `utils.ts` normalizes a stored phone (handles a leading `0`, a bare 10-digit number, or an existing `91`/`+91` prefix) into the bare-digit form `wa.me` needs.
   - **Events — Delete**: `EventCard` gained a Delete button next to Edit (both gated on the existing `canManageEvents`, unchanged/still `headOrOwner` — no new flag needed here since availability-viewing/broadcast/notify were already open to all and only the destructive actions needed gating). `EventsPage` wires it through the shared `ConfirmDialog` component (same one `SettingsPage` uses for coach removal) and the previously-unused `deleteEvent` from `useEvents()`.
   - Students, Fees, and Trials pages were deliberately **not** touched — see section 6.
+- [x] **Phase 25 (2026-07-12):** Five bug fixes — coach session counting, fee reason-for-not-paying, payment deletion, emergency fund RLS gap, invoice history retrieval.
+  - **Coach session counting** (highest priority): sessions/payouts were counting one row per time-slot instead of one per day. New `groupAttendanceByDate`/`countSessionDays`/`countVerifiedSessionDays` helpers in `useCoaches.ts` group `coach_attendance` rows by unique `date` before counting; `fetchMonthlyPayroll`, the `useCoaches()` hook's `load()`, `calculatePayroll`, `PayrollApproval.tsx`'s "Verify N Sessions" count, and `AssistantDashboard.tsx` (including its "Recent Sessions" list, now grouped per day instead of per row) all switched to the new helpers. See [[GOTCHAS]].
+  - **Fee reason-for-not-paying**: `PaymentForm`'s Note field now doubles as a mode switch — typing anything into it disables Amount/Amount Type/Mode and relabels the submit button to "Save Reason"; submitting inserts a `payments` row with the new `is_reason_only = true`, `amount = 0` instead of a real payment. `FeeCard`, `PaymentList` (`PaymentHistory.tsx`), and the success view in `PaymentForm` all render these rows distinctly ("Not Paying — Reason Given" / reason text) instead of as a paid amount. Requires a DB migration — see section 14d.
+  - **Payment deletion**: `usePayments.ts` gained `deletePayment(id)`; `PaymentList` gained per-row delete (icon button, only rendered when the caller passes `onDelete` — gated on `canRecordPayment` in `FeeDashboard.tsx`) behind a `ConfirmDialog`. `useStudents().applyPaymentOptimistic` gained an optional third `hasPayment` param (default `true`) so deleting a student's only payment for the viewed cycle correctly reverts their fee-status badge locally instead of needing a full refetch.
+  - **Invoice history retrieval**: the invoice-building logic previously inline in `PaymentForm.tsx` was extracted to `src/lib/invoiceHelpers.ts` (`buildInvoice`, reusable outside the payment-success flow). `PaymentList` gained a per-row "view invoice" icon (hidden for `is_reason_only` rows, which never had one) that regenerates/re-uploads the PDF on demand via `buildInvoice` and opens it — works even for older payments predating this feature, since generation is idempotent (`upsert: true` on the same `{paymentId}.pdf` storage path).
+  - **Emergency Fund RLS gap**: root-caused to the same "owner added to `coaches.role` after policies were written" class of bug as the Phase 13 payments incident (section 12) — `emergency_fund_transactions`' policies (created ad-hoc, never in `supabase/schema.sql`) only recognized `role = 'head'`. Fix is a SQL migration the owner must run manually — see section 14e (out of reach of this codebase since it requires direct Supabase SQL Editor / service-role access, not the anon key `.env` uses).
 
 ---
 
@@ -419,6 +427,8 @@ Hard-won lessons — read before touching these areas to avoid re-introducing fi
 - **`academy_settings.training_days` stores lowercase full day names** (`'monday'`, `'tuesday'`, ...) — `SettingsPage`'s day picker writes them that way. Anything comparing against `date-fns`'s `format(date, 'EEEE')` (which returns `'Monday'`, capitalized) must `.toLowerCase()` first, or the comparison silently never matches. `AssistantDashboard`'s "is today a training day" / "next training day" logic does this.
 - **`coach_attendance.session_note` is per-row (per coach + date + batch), not a true shared session-level field**, even though it's framed to coaches as a "session note." `CoachAttendance.tsx`'s per-batch textarea attaches its text to whichever coach's row gets marked next, then clears — it doesn't retroactively apply to already-marked rows or sync across coaches marking the same batch/date. This is fine in practice because assistants can only mark their own row (see `visibleCoaches` in `SectionA`), so one coach per batch per day is the common case; if two coaches ever mark the same batch/date, each keeps their own independent note.
 - **Opening multiple `wa.me` links in a row must use a `setTimeout` chain, not `Promise.all`/a plain loop.** Browsers only allow a `window.open()` popup per user gesture reliably when they're spaced out — firing several in the same tick gets most of them silently blocked. `NotifyParentsSection`'s "Send to All" (`AvailabilityTracker.tsx`) opens one link, waits 800ms via `setTimeout`, then opens the next, recursively — don't "optimize" this into a `for` loop or `Promise.all`.
+- **A coach "session" is one DAY, not one attendance row.** `coach_attendance` has one row per batch/time-slot, so a coach who takes both the 5-6 PM and 6-7 PM batch on the same date has two rows but worked ONE session that day. Every session count and payout (`useCoaches.ts`'s `fetchMonthlyPayroll`/`load()`/`calculatePayroll`, `PayrollApproval.tsx`, `AssistantDashboard.tsx`) must group by unique `date` first — use the shared `groupAttendanceByDate`/`countSessionDays`/`countVerifiedSessionDays` helpers exported from `useCoaches.ts` rather than `.length`/`.filter(...).length` on the raw attendance array, or you'll double-count coaches who take both batches.
+- **`payments.is_reason_only = true` is a sentinel, not a real payment.** `amount` is `0` and `mode` is `null` on these rows specifically so revenue sums (which just `SUM(amount)`) net out correctly without extra filtering — don't "fix" a reason-only row's amount to be non-zero, and don't filter these out of fee-status queries (they're meant to resolve the cycle, just not as a paid amount). Any new code that reads `payments` for revenue/totals is automatically correct; any code that renders a payment row should check `is_reason_only` first and branch its display (see `PaymentList` in `PaymentHistory.tsx`).
 - **A render-phase `if (condition) { setState(...) }` guard is not a substitute for `useEffect`.** `PaymentForm`'s old reset-on-open logic re-ran on *every* render as long as `amount === ''` — harmless for fixed-fee students (amount becomes non-empty immediately) but for flexible-fee students (amount starts and can stay `''`) it silently wiped `note`/`paidDate`/`mode` back to defaults the moment the coach touched any other field first. Reset-on-open logic belongs in a `useEffect` keyed on a *stable* identity (`student?.id`, not the whole object) so it only fires when the drawer actually opens for a new student, not on every unrelated re-render.
 
 ---
@@ -430,6 +440,8 @@ Hard-won lessons — read before touching these areas to avoid re-introducing fi
 | `THREE.Clock deprecated` warning from `useFrame` in `SoccerBall3D.tsx` | **Known · minor** — originates inside R3F/Three.js internals, does not affect functionality |
 | `student-photos` Supabase Storage bucket | **Manual setup required if not already run** — SQL in section 14; without it photo upload throws a storage error |
 | `coach_attendance.session_note` column | **Manual setup required if not already run** — SQL in section 14c; without it, marking attendance with a note filled in throws an insert error |
+| `payments.is_reason_only` column | **Manual setup required if not already run** — SQL in section 14d; without it, using the "reason for not paying" feature in PaymentForm throws an insert error |
+| `emergency_fund_transactions` RLS owner gap | **Manual setup required if not already run** — SQL in section 14e; without it, the owner role (Sahil) gets a silent/rejected insert when adding an Emergency Fund transaction (same root-cause class as the Phase 13 payments RLS bug — the owner role was added after this table's policies were first written) |
 
 All other previously-tracked issues (TS build errors, login animation race, WebGL context loss, Events RLS, Drawer scroll, payment RLS role mismatch, coach-attendance pending-for-owner, navigation-stuck) are **resolved** — root-cause patterns are captured in section 12 (Gotchas) to prevent regression.
 
@@ -508,6 +520,62 @@ ADD COLUMN IF NOT EXISTS session_note TEXT;
 ```
 
 No RLS changes needed — the existing `"Authenticated users can insert coach_attendance"` policy (`WITH CHECK (TRUE)`) already covers inserting a row with `session_note` set.
+
+---
+
+## 14d. SUPABASE MIGRATION — payments.is_reason_only column
+
+Run this SQL to enable the "reason for not paying" fee feature (Phase 25):
+
+```sql
+ALTER TABLE payments
+ADD COLUMN IF NOT EXISTS is_reason_only BOOLEAN NOT NULL DEFAULT false;
+```
+
+No RLS changes needed — inserting a reason-only row goes through the same INSERT policy as a normal payment.
+
+---
+
+## 14e. SUPABASE RLS FIX — emergency_fund_transactions owner gap
+
+The `emergency_fund_transactions` table (added ad-hoc during Phase 10, never captured in `supabase/schema.sql`) was found to reject inserts from the `owner` role — same root-cause class as the Phase 13 `payments`/`coach_attendance` RLS bug documented in section 12: the `coaches.role` enum gained `'owner'` after this table's policies were first written, and they were never updated in lockstep. Run this in the Supabase SQL Editor to reset the table's policies with `owner` included (safe to re-run; it drops whatever policies currently exist on the table by name and recreates them):
+
+```sql
+DO $$
+DECLARE
+  pol RECORD;
+BEGIN
+  FOR pol IN SELECT policyname FROM pg_policies WHERE tablename = 'emergency_fund_transactions'
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON emergency_fund_transactions', pol.policyname);
+  END LOOP;
+END $$;
+
+ALTER TABLE emergency_fund_transactions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Authenticated users can read emergency_fund_transactions"
+  ON emergency_fund_transactions FOR SELECT TO authenticated USING (TRUE);
+
+CREATE POLICY "Head or owner can insert emergency_fund_transactions"
+  ON emergency_fund_transactions FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM coaches WHERE user_id = auth.uid() AND role IN ('owner', 'head'))
+  );
+
+CREATE POLICY "Head or owner can update emergency_fund_transactions"
+  ON emergency_fund_transactions FOR UPDATE TO authenticated
+  USING (
+    EXISTS (SELECT 1 FROM coaches WHERE user_id = auth.uid() AND role IN ('owner', 'head'))
+  );
+
+CREATE POLICY "Head or owner can delete emergency_fund_transactions"
+  ON emergency_fund_transactions FOR DELETE TO authenticated
+  USING (
+    EXISTS (SELECT 1 FROM coaches WHERE user_id = auth.uid() AND role IN ('owner', 'head'))
+  );
+```
+
+While auditing this, `payments` DELETE (needed for the new fee-deletion feature, Phase 25) was also checked: `supabase/schema.sql` still shows `role = 'head'` only (line ~318), but section 13's Known Issues marks the payments RLS role mismatch as historically resolved, meaning the live database's policy was already patched to include `'owner'` directly (outside this file). If deleting a payment as the owner ever throws an RLS error in practice, apply the identical drop-and-recreate pattern above to the `payments` table instead.
 
 ---
 

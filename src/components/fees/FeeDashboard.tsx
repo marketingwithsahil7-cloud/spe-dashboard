@@ -7,14 +7,19 @@ import {
 import { gsap } from '../../lib/animations'
 import { useStudents } from '../../hooks/useStudents'
 import { usePayments } from '../../hooks/usePayments'
+import { usePermissions } from '../../hooks/usePermissions'
+import { useAuthStore } from '../../store/authStore'
 import { FeeCard } from './FeeCard'
 import { PaymentForm } from './PaymentForm'
 import { PaymentList, PaymentListSkeleton, PaymentEmptyState } from './PaymentHistory'
 import { MonthSelector } from './MonthSelector'
 import { Skeleton } from '../ui/Skeleton'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { useToast } from '../ui/Toast'
+import { buildInvoice } from '../../lib/invoiceHelpers'
 import { cn, formatCurrency } from '../../lib/utils'
 import type { StudentWithFee } from '../../hooks/useStudents'
-import type { FeeStatus } from '../../types/index'
+import type { FeeStatus, Payment } from '../../types/index'
 
 // ─── Fee status groups ────────────────────────────────────────────────────────
 
@@ -84,13 +89,14 @@ function FeeStat({ icon, label, value, sub, colorClass }: {
 // ─── Student group section ────────────────────────────────────────────────────
 
 function StatusSection({
-  status, students, onRecordPay, monthLabel, isCurrentMonth,
+  status, students, onRecordPay, monthLabel, isCurrentMonth, reasonsByStudent,
 }: {
-  status:         FeeStatus
-  students:       StudentWithFee[]
-  onRecordPay:    (s: StudentWithFee) => void
-  monthLabel:     string
-  isCurrentMonth: boolean
+  status:           FeeStatus
+  students:         StudentWithFee[]
+  onRecordPay:      (s: StudentWithFee) => void
+  monthLabel:       string
+  isCurrentMonth:   boolean
+  reasonsByStudent: Record<string, string>
 }) {
   // In a past-month view, the "overdue" bucket really means "no payment record
   // found for that month" — label the section accordingly instead of "Overdue".
@@ -121,6 +127,7 @@ function StatusSection({
             onRecordPay={onRecordPay}
             monthLabel={monthLabel}
             isCurrentMonth={isCurrentMonth}
+            reason={reasonsByStudent[s.id]}
           />
         ))}
       </div>
@@ -141,12 +148,17 @@ export function FeeDashboard() {
 
   // lite: true — Fees page only needs fee-relevant columns, not photo_url/join_date/etc.
   const { students, isLoading: studentsLoading, error: studentsError, applyPaymentOptimistic } = useStudents({ lite: true, month: selectedMonth })
-  const { payments, isLoading: paymentsLoading, error: paymentsError, addPayment } = usePayments(selectedMonth)
+  const { payments, isLoading: paymentsLoading, error: paymentsError, addPayment, deletePayment } = usePayments(selectedMonth)
+  const { canRecordPayment } = usePermissions()
+  const coach = useAuthStore(s => s.coach)
+  const toast = useToast()
 
   const [activeTab,      setActiveTab]      = useState<TabView>('action')
   const [searchQuery,    setSearchQuery]    = useState('')
   const [selectedStudent, setSelectedStudent] = useState<StudentWithFee | null>(null)
   const [formOpen,       setFormOpen]       = useState(false)
+  const [deleteTarget,   setDeleteTarget]   = useState<Payment | null>(null)
+  const [deleting,       setDeleting]       = useState(false)
 
   const isLoading = studentsLoading || paymentsLoading
   const error     = studentsError   || paymentsError
@@ -187,6 +199,13 @@ export function FeeDashboard() {
   const pendingAmount   = [...overdueStudents, ...dueTodayStudents].reduce((s, st) => s + st.monthly_fee, 0)
   const collectedAmount = payments.reduce((s, p) => s + p.amount, 0)
 
+  // Students with a saved "reason for not paying" this month, keyed by student id —
+  // these are 'paid'-cycle-resolved but excluded from actual revenue (amount stored as 0).
+  const reasonsByStudent = useMemo(() =>
+    Object.fromEntries(
+      payments.filter(p => p.is_reason_only && p.note).map(p => [p.student_id, p.note as string])
+    ), [payments])
+
   // Build student name map for payment history
   const studentNameMap = useMemo(() =>
     Object.fromEntries(students.map(s => [s.id, s.name])), [students])
@@ -212,6 +231,34 @@ export function FeeDashboard() {
     // Updates just this one student's fee status locally — no full students/payments refetch.
     applyPaymentOptimistic(payment.student_id, payment.for_cycle)
     return payment
+  }
+
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      const deleted = await deletePayment(deleteTarget.id)
+      // Any other payment still recorded for this student+cycle after removing this one?
+      const stillHasPayment = payments.some(p => p.id !== deleted.id && p.student_id === deleted.student_id)
+      applyPaymentOptimistic(deleted.student_id, deleted.for_cycle, stillHasPayment)
+      setDeleteTarget(null)
+      toast.success('Payment deleted')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete payment')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const handleViewInvoice = async (payment: Payment) => {
+    const student = students.find(s => s.id === payment.student_id)
+    if (!student) { toast.error('Student data not found'); return }
+    try {
+      const { pdfUrl } = await buildInvoice(payment, student, coach?.name ?? 'Coach')
+      window.open(pdfUrl, '_blank')
+    } catch {
+      toast.error('Failed to generate invoice')
+    }
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -334,9 +381,9 @@ export function FeeDashboard() {
               <AllPaidState monthLabel={monthLabel} isCurrentMonth={isCurrentMonth} />
             ) : (
               <>
-                <StatusSection status="overdue"    students={filterStudents(overdueStudents)}  onRecordPay={handleRecordPay} monthLabel={monthLabel} isCurrentMonth={isCurrentMonth} />
-                <StatusSection status="due_today"  students={filterStudents(dueTodayStudents)} onRecordPay={handleRecordPay} monthLabel={monthLabel} isCurrentMonth={isCurrentMonth} />
-                <StatusSection status="due_soon"   students={filterStudents(dueSoonStudents)}  onRecordPay={handleRecordPay} monthLabel={monthLabel} isCurrentMonth={isCurrentMonth} />
+                <StatusSection status="overdue"    students={filterStudents(overdueStudents)}  onRecordPay={handleRecordPay} monthLabel={monthLabel} isCurrentMonth={isCurrentMonth} reasonsByStudent={reasonsByStudent} />
+                <StatusSection status="due_today"  students={filterStudents(dueTodayStudents)} onRecordPay={handleRecordPay} monthLabel={monthLabel} isCurrentMonth={isCurrentMonth} reasonsByStudent={reasonsByStudent} />
+                <StatusSection status="due_soon"   students={filterStudents(dueSoonStudents)}  onRecordPay={handleRecordPay} monthLabel={monthLabel} isCurrentMonth={isCurrentMonth} reasonsByStudent={reasonsByStudent} />
               </>
             )
           ) : activeTab === 'paid' ? (
@@ -355,6 +402,7 @@ export function FeeDashboard() {
                       onRecordPay={handleRecordPay}
                       monthLabel={monthLabel}
                       isCurrentMonth={isCurrentMonth}
+                      reason={reasonsByStudent[s.id]}
                     />
                   ))}
                 </div>
@@ -371,7 +419,12 @@ export function FeeDashboard() {
               ) : payments.length === 0 ? (
                 <PaymentEmptyState />
               ) : (
-                <PaymentList payments={payments} studentNames={studentNameMap} />
+                <PaymentList
+                  payments={payments}
+                  studentNames={studentNameMap}
+                  onViewInvoice={handleViewInvoice}
+                  onDelete={canRecordPayment ? p => setDeleteTarget(p) : undefined}
+                />
               )}
             </div>
           )}
@@ -385,6 +438,22 @@ export function FeeDashboard() {
         onClose={() => { setFormOpen(false); setSelectedStudent(null) }}
         onSave={handleSavePayment}
         defaultMonth={selectedMonth}
+      />
+
+      {/* ── Delete payment confirmation ───────────────────────────────────────── */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete this payment record?"
+        description={
+          deleteTarget
+            ? `This removes the ${formatCurrency(deleteTarget.amount)} payment recorded for ${studentNameMap[deleteTarget.student_id] ?? 'this student'} on ${format(new Date(deleteTarget.paid_date), 'd MMM yyyy')}. This cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Delete Payment"
+        variant="danger"
+        loading={deleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
       />
     </>
   )

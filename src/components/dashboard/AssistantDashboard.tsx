@@ -5,7 +5,7 @@ import { IndianRupee, ArrowRight, RefreshCw } from 'lucide-react'
 import { gsap } from '../../lib/animations'
 import { useAuthStore } from '../../store/authStore'
 import { useAcademySettings } from '../../hooks/useAcademySettings'
-import { fetchCoachAttendance, fetchCoachAttendanceRange } from '../../hooks/useCoaches'
+import { fetchCoachAttendance, fetchCoachAttendanceRange, groupAttendanceByDate, countSessionDays, countVerifiedSessionDays } from '../../hooks/useCoaches'
 import { ROUTES, getGreeting } from '../../lib/constants'
 import { formatCurrency } from '../../lib/utils'
 import { Badge } from '../ui/Badge'
@@ -105,11 +105,19 @@ export function AssistantDashboard() {
     }
   }
 
-  const sessionsThisMonth = monthAttendance.length
-  const verifiedSessions  = monthAttendance.filter(r => r.verified)
-  const pendingSessions   = sessionsThisMonth - verifiedSessions.length
-  const estimatedEarnings = verifiedSessions.length * coach.per_session_rate
-  const recentSessions    = recentAttendance.slice(0, 7)
+  const sessionsThisMonth  = countSessionDays(monthAttendance)
+  const verifiedSessionsCt = countVerifiedSessionDays(monthAttendance)
+  const pendingSessions    = sessionsThisMonth - verifiedSessionsCt
+  const estimatedEarnings  = verifiedSessionsCt * coach.per_session_rate
+
+  const recentSessions = Array.from(groupAttendanceByDate(recentAttendance).entries())
+    .sort(([a], [b]) => b.localeCompare(a))
+    .slice(0, 7)
+    .map(([date, records]) => ({
+      date,
+      batches:  records.map(r => r.batch).join(', '),
+      verified: records.every(r => r.verified),
+    }))
 
   return (
     <div ref={containerRef} className="space-y-5 pb-8">
@@ -163,7 +171,7 @@ export function AssistantDashboard() {
             <p className="font-body text-xs text-slate-500 mt-1">Sessions</p>
           </div>
           <div>
-            <p className="font-display text-2xl font-bold text-grass leading-none">{verifiedSessions.length}</p>
+            <p className="font-display text-2xl font-bold text-grass leading-none">{verifiedSessionsCt}</p>
             <p className="font-body text-xs text-slate-500 mt-1">Verified</p>
           </div>
           <div>
@@ -189,13 +197,13 @@ export function AssistantDashboard() {
           <div className="space-y-1">
             {recentSessions.map(r => (
               <div
-                key={r.id}
+                key={r.date}
                 className="flex items-center justify-between gap-3 py-2.5"
                 style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <p className="font-body text-xs text-slate-400 w-16 shrink-0">{format(new Date(r.date), 'd MMM')}</p>
-                  <p className="font-body text-sm text-white truncate">{r.batch}</p>
+                  <p className="font-body text-sm text-white truncate">{r.batches}</p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   {r.verified

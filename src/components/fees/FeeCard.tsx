@@ -17,6 +17,9 @@ interface FeeCardProps {
   // payment record at all (very different meanings, same underlying feeStatus).
   monthLabel?:     string
   isCurrentMonth?: boolean
+  // Set when this student has a saved "reason for not paying" for the viewed
+  // month instead of an actual payment — shown in place of the amount.
+  reason?: string | null
 }
 
 // ─── Remind button config based on fee scenario ───────────────────────────────
@@ -45,7 +48,7 @@ function getRemindConfig(feeStatus: string, daysOverdue: number): {
 
 // React.memo — with 20+ cards on screen, this skips re-rendering the ones whose
 // student/onRecordPay props haven't changed (e.g. after a single optimistic payment update).
-export const FeeCard = memo(function FeeCard({ student, onRecordPay, monthLabel, isCurrentMonth = true }: FeeCardProps) {
+export const FeeCard = memo(function FeeCard({ student, onRecordPay, monthLabel, isCurrentMonth = true, reason }: FeeCardProps) {
   const { canRecordPayment } = usePermissions()
   const cardRef = useRef<HTMLDivElement>(null)
 
@@ -127,16 +130,24 @@ export const FeeCard = memo(function FeeCard({ student, onRecordPay, monthLabel,
 
         {/* Amount + status */}
         <div className="text-right shrink-0">
-          <p className={cn(
-            'font-display text-base font-bold leading-none',
-            isOverdue             ? 'text-danger'
-            : isDueToday || isDueSoon ? 'text-amber'
-            : 'text-grass',
-          )}>
-            {formatCurrency(monthly_fee)}
-          </p>
+          {reason ? (
+            <p className="font-display text-sm font-bold leading-tight text-amber" style={{ color: '#FFB800' }}>
+              Not Paying
+            </p>
+          ) : (
+            <p className={cn(
+              'font-display text-base font-bold leading-none',
+              isOverdue             ? 'text-danger'
+              : isDueToday || isDueSoon ? 'text-amber'
+              : 'text-grass',
+            )}>
+              {formatCurrency(monthly_fee)}
+            </p>
+          )}
           <div className="mt-1">
-            {isMissingRecord ? (
+            {reason ? (
+              <p className="font-body text-[10px] text-amber/70">excluded from revenue</p>
+            ) : isMissingRecord ? (
               <p className="font-body text-[10px] text-danger/80 flex items-center justify-end gap-0.5">
                 <Clock size={10} />
                 no record
@@ -161,7 +172,9 @@ export const FeeCard = memo(function FeeCard({ student, onRecordPay, monthLabel,
 
       {/* Badge row */}
       <div className="flex items-center gap-2">
-        {isMissingRecord ? (
+        {reason ? (
+          <Badge variant="due_soon" label="Not Paying — Reason Given" />
+        ) : isMissingRecord ? (
           <Badge variant="overdue" label={`No record — ${monthLabel ?? 'this month'}`} />
         ) : (
           <Badge variant={feeStatus} />
@@ -170,6 +183,13 @@ export const FeeCard = memo(function FeeCard({ student, onRecordPay, monthLabel,
           <Badge variant="trial" label="Trial Student" />
         )}
       </div>
+
+      {/* Reason text */}
+      {reason && (
+        <p className="font-body text-[11px] text-slate-400 italic leading-relaxed">
+          &ldquo;{reason}&rdquo;
+        </p>
+      )}
 
       {/* Action buttons */}
       {!isPaid && (

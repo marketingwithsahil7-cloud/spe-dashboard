@@ -49,6 +49,7 @@ export interface Payment {
   for_cycle: string | null
   mode: PaymentMode | null
   note: string | null
+  is_reason_only: boolean
   recorded_by: string | null
   created_at: string
 }

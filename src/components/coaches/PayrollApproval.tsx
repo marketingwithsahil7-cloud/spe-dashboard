@@ -82,6 +82,7 @@ function CoachPayrollCard({ summary, verifyAttendance, onVerified }: CoachPayrol
   const confirmedNotDisputed = attendance.filter(a => a.confirmed_by_coach && !a.disputed)
   const allVerified = confirmedNotDisputed.length > 0 && confirmedNotDisputed.every(a => a.verified)
   const pendingVerify = confirmedNotDisputed.filter(a => !a.verified)
+  const pendingVerifyDays = new Set(pendingVerify.map(r => r.date)).size
 
   async function handleApproveAll() {
     setVerifying(true)
@@ -219,7 +220,7 @@ function CoachPayrollCard({ summary, verifyAttendance, onVerified }: CoachPayrol
             onClick={handleApproveAll}
             disabled={verifying}
           >
-            {verifying ? 'Verifying…' : `Verify ${pendingVerify.length} Session${pendingVerify.length > 1 ? 's' : ''}`}
+            {verifying ? 'Verifying…' : `Verify ${pendingVerifyDays} Session${pendingVerifyDays > 1 ? 's' : ''}`}
           </Button>
         ) : null}
 

@@ -13,14 +13,18 @@ export interface PaymentInput {
   for_cycle?: string | null
   mode?: PaymentMode | null
   note?: string | null
+  // true when this row is a saved "reason for not paying" rather than an
+  // actual payment — amount is stored as 0 and excluded from revenue by nature.
+  is_reason_only?: boolean
 }
 
 export interface UsePaymentsReturn {
-  payments:   Payment[]
-  isLoading:  boolean
-  error:      string | null
-  addPayment: (data: PaymentInput) => Promise<Payment>
-  refetch:    () => void
+  payments:      Payment[]
+  isLoading:     boolean
+  error:         string | null
+  addPayment:    (data: PaymentInput) => Promise<Payment>
+  deletePayment: (id: string) => Promise<Payment>
+  refetch:       () => void
 }
 
 // Standalone helper — for PaymentHistory within student profile / fee page
@@ -76,13 +80,14 @@ export function usePayments(month?: string): UsePaymentsReturn {
 
   const addPayment = useCallback(async (data: PaymentInput): Promise<Payment> => {
     const row = {
-      student_id:  data.student_id,
-      amount:      data.amount,
-      paid_date:   data.paid_date,
-      for_cycle:   data.for_cycle  ?? targetCycle,
-      mode:        data.mode       ?? null,
-      note:        data.note       ?? null,
-      recorded_by: userId,
+      student_id:     data.student_id,
+      amount:         data.amount,
+      paid_date:      data.paid_date,
+      for_cycle:      data.for_cycle  ?? targetCycle,
+      mode:           data.mode       ?? null,
+      note:           data.note       ?? null,
+      is_reason_only: data.is_reason_only ?? false,
+      recorded_by:    userId,
     }
 
     const { data: inserted, error: err } = await supabase
@@ -103,5 +108,19 @@ export function usePayments(month?: string): UsePaymentsReturn {
     return payment
   }, [userId, targetCycle])
 
-  return { payments, isLoading, error, addPayment, refetch: load }
+  const deletePayment = useCallback(async (id: string): Promise<Payment> => {
+    const target = payments.find(p => p.id === id)
+    if (!target) throw new Error('Payment not found')
+
+    const { error: err } = await supabase
+      .from('payments')
+      .delete()
+      .eq('id', id)
+
+    if (err) throw err
+    setPayments(prev => prev.filter(p => p.id !== id))
+    return target
+  }, [payments])
+
+  return { payments, isLoading, error, addPayment, deletePayment, refetch: load }
 }

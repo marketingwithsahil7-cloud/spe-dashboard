@@ -51,7 +51,7 @@ export interface UseStudentsReturn {
   refetch: () => void
   // Updates one student's cached fee status locally instead of a full refetch —
   // used right after recording a payment so the other 19+ cards don't re-render.
-  applyPaymentOptimistic: (studentId: string, forCycle: string | null | undefined) => void
+  applyPaymentOptimistic: (studentId: string, forCycle: string | null | undefined, hasPayment?: boolean) => void
   searchStudents: (query: string) => StudentWithFee[]
   filterByBatch: (batch: BatchType | 'All') => StudentWithFee[]
   filterByStatus: (status: StudentStatus | 'All') => StudentWithFee[]
@@ -152,16 +152,23 @@ export function useStudents(options?: UseStudentsOptions): UseStudentsReturn {
 
   useEffect(() => { load() }, [load])
 
-  // Flips a single student's cached fee status to 'paid' right after a payment is
-  // recorded for the cycle currently being viewed — avoids a full students+payments
+  // Flips a single student's cached fee status right after a payment is added or
+  // removed for the cycle currently being viewed — avoids a full students+payments
   // refetch (and the resulting re-render/re-animation of every other fee card).
-  const applyPaymentOptimistic = useCallback((studentId: string, forCycle: string | null | undefined) => {
+  // `hasPayment` defaults to true (a payment was just recorded); pass false after
+  // deleting a payment when no other payment row remains for that student+cycle.
+  const applyPaymentOptimistic = useCallback((
+    studentId: string,
+    forCycle: string | null | undefined,
+    hasPayment: boolean = true,
+  ) => {
     const targetCycle = month ?? format(new Date(), 'yyyy-MM')
     if (forCycle !== targetCycle) return // payment wasn't for the viewed cycle — status unchanged
 
+    const paidSet = hasPayment ? new Set([studentId]) : new Set<string>()
     setStudents(prev => prev.map(s => {
       if (s.id !== studentId) return s
-      return { ...s, ...computeFeeStatus(s, new Set([studentId]), new Date(), targetCycle) }
+      return { ...s, ...computeFeeStatus(s, paidSet, new Date(), targetCycle) }
     }))
   }, [month])
 
