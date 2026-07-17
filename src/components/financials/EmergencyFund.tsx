@@ -2,12 +2,13 @@ import { useRef, useEffect, useState } from 'react'
 import { format, differenceInDays } from 'date-fns'
 import {
   ShieldAlert, ArrowDownCircle, ArrowUpCircle, RefreshCw,
-  Clock, CheckCircle2, AlertCircle, Plus, Loader2, IndianRupee,
+  Clock, CheckCircle2, AlertCircle, Plus, Loader2, IndianRupee, Trash2,
 } from 'lucide-react'
 import { gsap } from '../../lib/animations'
 import { Drawer } from '../ui/Drawer'
 import { Avatar } from '../ui/Avatar'
 import { Button } from '../ui/Button'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { cn, formatCurrency } from '../../lib/utils'
 import type { EmergencyFundTransactionWithCoach, EmergencyFundBalance, EmergencyTxInput } from '../../hooks/useFinancials'
 
@@ -407,7 +408,11 @@ const PURPOSE_LABELS: Record<string, string> = {
 
 // ─── Transaction row ──────────────────────────────────────────────────────────
 
-function TxRow({ tx }: { tx: EmergencyFundTransactionWithCoach }) {
+function TxRow({ tx, isHeadOrOwner, onDelete }: {
+  tx:            EmergencyFundTransactionWithCoach
+  isHeadOrOwner: boolean
+  onDelete?:     (tx: EmergencyFundTransactionWithCoach) => void
+}) {
   const isDeposit    = tx.type === 'deposit'
   const isWithdrawal = tx.type === 'withdrawal'
   const isRepaid     = isWithdrawal && tx.repaid
@@ -470,6 +475,18 @@ function TxRow({ tx }: { tx: EmergencyFundTransactionWithCoach }) {
       >
         {isDeposit ? '+' : '-'}{formatCurrency(tx.amount)}
       </span>
+
+      {/* Delete */}
+      {isHeadOrOwner && onDelete && (
+        <button
+          onClick={() => onDelete(tx)}
+          className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-danger transition-colors"
+          style={{ background: 'rgba(255,255,255,0.04)' }}
+          title="Delete transaction"
+        >
+          <Trash2 size={13} />
+        </button>
+      )}
     </div>
   )
 }
@@ -484,6 +501,7 @@ interface EmergencyFundProps {
   isHeadOrOwner:       boolean
   onAddTransaction:    (data: EmergencyTxInput) => Promise<void>
   onMarkRepaid:        (id: string, amount: number, date: string) => Promise<void>
+  onDeleteTransaction: (id: string) => Promise<void>
 }
 
 const TX_FILTER_TABS: { key: TxFilter; label: string }[] = [
@@ -493,13 +511,28 @@ const TX_FILTER_TABS: { key: TxFilter; label: string }[] = [
 ]
 
 export function EmergencyFund({
-  transactions, balance, coaches, isLoading, isHeadOrOwner, onAddTransaction, onMarkRepaid,
+  transactions, balance, coaches, isLoading, isHeadOrOwner, onAddTransaction, onMarkRepaid, onDeleteTransaction,
 }: EmergencyFundProps) {
   const listRef      = useRef<HTMLDivElement>(null)
   const pendingRef   = useRef<HTMLDivElement>(null)
 
-  const [txFilter,    setTxFilter]    = useState<TxFilter>('all')
-  const [drawerOpen,  setDrawerOpen]  = useState(false)
+  const [txFilter,     setTxFilter]     = useState<TxFilter>('all')
+  const [drawerOpen,   setDrawerOpen]   = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<EmergencyFundTransactionWithCoach | null>(null)
+  const [deleting,     setDeleting]     = useState(false)
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await onDeleteTransaction(deleteTarget.id)
+      setDeleteTarget(null)
+    } catch {
+      // ConfirmDialog stays open — coach can retry
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   useEffect(() => {
     if (isLoading || !pendingRef.current) return
@@ -614,7 +647,9 @@ export function EmergencyFund({
           </div>
         ) : (
           <div ref={listRef} className="space-y-2">
-            {filtered.map(tx => <TxRow key={tx.id} tx={tx} />)}
+            {filtered.map(tx => (
+              <TxRow key={tx.id} tx={tx} isHeadOrOwner={isHeadOrOwner} onDelete={setDeleteTarget} />
+            ))}
           </div>
         )}
       </div>
@@ -625,6 +660,17 @@ export function EmergencyFund({
         coaches={coaches}
         onClose={() => setDrawerOpen(false)}
         onSave={onAddTransaction}
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete this transaction?"
+        description="This permanently removes the fund transaction and cannot be undone."
+        confirmLabel="Delete Transaction"
+        variant="danger"
+        loading={deleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
       />
     </div>
   )

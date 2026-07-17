@@ -33,6 +33,7 @@ export interface UseTrialsReturn {
   addTrial: (data: TrialInput) => Promise<Trial>
   resolveTrial: (id: string, data: TrialResolveData) => Promise<void>
   convertToStudent: (trial: Trial, data: ConvertStudentData) => Promise<void>
+  deleteTrial: (id: string) => Promise<void>
   refetch: () => void
 }
 
@@ -120,5 +121,11 @@ export function useTrials(): UseTrialsReturn {
     await load()
   }, [load])
 
-  return { trials, isLoading, error, addTrial, resolveTrial, convertToStudent, refetch: load }
+  const deleteTrial = useCallback(async (id: string): Promise<void> => {
+    const { error: err } = await supabase.from('trials').delete().eq('id', id)
+    if (err) throw err
+    await load()
+  }, [load])
+
+  return { trials, isLoading, error, addTrial, resolveTrial, convertToStudent, deleteTrial, refetch: load }
 }

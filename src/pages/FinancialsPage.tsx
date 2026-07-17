@@ -106,6 +106,7 @@ export default function FinancialsPage() {
     updateExpense,
     deleteExpense,
     addEmergencyTransaction,
+    deleteEmergencyTransaction,
     markRepaid,
     addNote,
     deleteNote,
@@ -122,7 +123,7 @@ export default function FinancialsPage() {
   }))
 
   return (
-    <div className="relative space-y-5 pb-24 md:pb-8">
+    <div className="relative space-y-5 pb-8">
       <PageGlow variant="gold" />
       <Suspense fallback={null}><AmbientBackground variant="financials" /></Suspense>
       {/* ── Page header ──────────────────────────────────────────────────── */}
@@ -263,6 +264,7 @@ export default function FinancialsPage() {
           isHeadOrOwner={isHeadOrOwner}
           onAddTransaction={addEmergencyTransaction}
           onMarkRepaid={markRepaid}
+          onDeleteTransaction={deleteEmergencyTransaction}
         />
       )}
 

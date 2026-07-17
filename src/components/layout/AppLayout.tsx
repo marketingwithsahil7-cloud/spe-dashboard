@@ -2,7 +2,6 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
-import { BottomNav } from './BottomNav'
 import { pageVariants } from '../../lib/animations'
 
 // Wraps Outlet with AnimatePresence keyed on pathname so exit plays before entry
@@ -33,12 +32,10 @@ export function AppLayout() {
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar />
 
-        <main className="flex-1 px-4 md:px-6 pt-6 pb-24 md:pb-10">
+        <main className="flex-1 px-4 md:px-6 pt-6 pb-6 md:pb-10">
           <PageTransitionWrapper />
         </main>
       </div>
-
-      <BottomNav />
     </div>
   )
 }

@@ -37,6 +37,7 @@ interface StudentListProps {
   error:     string | null
   onAdd:     () => void
   onEdit:    (student: StudentWithFee) => void
+  onDelete?: (student: StudentWithFee) => void
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -83,7 +84,7 @@ function EmptyState({ hasFilters, onClear }: { hasFilters: boolean; onClear: () 
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
-export function StudentList({ students, isLoading, error, onAdd, onEdit }: StudentListProps) {
+export function StudentList({ students, isLoading, error, onAdd, onEdit, onDelete }: StudentListProps) {
   const [query,        setQuery]        = useState('')
   const [debouncedQ,   setDebouncedQ]   = useState('')
   const [batchFilter,  setBatchFilter]  = useState<BatchType | 'All'>('All')
@@ -130,7 +131,7 @@ export function StudentList({ students, isLoading, error, onAdd, onEdit }: Stude
   }
 
   return (
-    <div className="flex flex-col gap-5 pb-24 md:pb-8">
+    <div className="flex flex-col gap-5 pb-8">
 
       {/* ── Top bar ─────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-3">
@@ -293,6 +294,7 @@ export function StudentList({ students, isLoading, error, onAdd, onEdit }: Stude
                 student={s}
                 index={i}
                 onEdit={onEdit}
+                onDelete={onDelete}
               />
             ))
           )}
@@ -306,7 +308,7 @@ export function StudentList({ students, isLoading, error, onAdd, onEdit }: Stude
           whileTap={{ scale: 0.93 }}
           data-magnetic
           onClick={onAdd}
-          className="fixed bottom-24 right-5 md:bottom-8 md:right-8 z-40 w-14 h-14 rounded-full bg-grass flex items-center justify-center glow-green shadow-[0_0_32px_rgba(0,255,135,0.45)] transition-shadow"
+          className="fixed bottom-6 right-5 md:bottom-8 md:right-8 z-40 w-14 h-14 rounded-full bg-grass flex items-center justify-center glow-green shadow-[0_0_32px_rgba(0,255,135,0.45)] transition-shadow"
           aria-label="Add student"
         >
           <Plus size={24} className="text-pitch font-bold" strokeWidth={2.5} />

@@ -235,7 +235,7 @@ function AcademyTab() {
 interface CoachRowProps {
   coach:     Coach
   onToggle:  (id: string, active: boolean) => void
-  onEdit:    (id: string, data: { name: string; role: CoachRole; per_session_rate: number }) => void
+  onEdit:    (id: string, data: { name: string; role: CoachRole; per_session_rate: number; coaching_days: string[] }) => void
   onDelete:  (coach: Coach) => void
 }
 
@@ -244,9 +244,14 @@ function CoachRow({ coach, onToggle, onEdit, onDelete }: CoachRowProps) {
   const [name,    setName]    = useState(coach.name)
   const [role,    setRole]    = useState<CoachRole>(coach.role ?? 'assistant')
   const [rate,    setRate]    = useState(coach.per_session_rate)
+  const [days,    setDays]    = useState<string[]>(coach.coaching_days ?? [])
+
+  const toggleDay = (day: string) => {
+    setDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
+  }
 
   const save = () => {
-    onEdit(coach.id, { name, role, per_session_rate: rate })
+    onEdit(coach.id, { name, role, per_session_rate: rate, coaching_days: days })
     setEditing(false)
   }
 
@@ -254,6 +259,7 @@ function CoachRow({ coach, onToggle, onEdit, onDelete }: CoachRowProps) {
     setName(coach.name)
     setRole(coach.role ?? 'assistant')
     setRate(coach.per_session_rate)
+    setDays(coach.coaching_days ?? [])
     setEditing(false)
   }
 
@@ -291,6 +297,26 @@ function CoachRow({ coach, onToggle, onEdit, onDelete }: CoachRowProps) {
               style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}
             />
           </div>
+          <div className="space-y-1.5">
+            <p className="font-body text-[11px] text-slate-500 uppercase tracking-wider">Coaching Days</p>
+            <div className="flex flex-wrap gap-1.5">
+              {DAYS.map(day => (
+                <button
+                  key={day}
+                  onClick={() => toggleDay(day)}
+                  className={cn(
+                    'h-7 px-2.5 rounded-lg font-body text-[11px] font-semibold capitalize transition-all duration-150',
+                    days.includes(day)
+                      ? 'bg-grass text-pitch'
+                      : 'text-slate-400 hover:text-white',
+                  )}
+                  style={!days.includes(day) ? { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' } : {}}
+                >
+                  {day.slice(0, 3)}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex gap-2">
             <Button size="sm" variant="primary" icon={<Check size={13} />} onClick={save}>Save</Button>
             <Button size="sm" variant="secondary" icon={<X size={13} />} onClick={cancel}>Cancel</Button>
@@ -317,6 +343,11 @@ function CoachRow({ coach, onToggle, onEdit, onDelete }: CoachRowProps) {
               ₹{coach.per_session_rate}/session
               {coach.login_email && ` · ${coach.login_email}`}
             </p>
+            {!!coach.coaching_days?.length && (
+              <p className="font-body text-[11px] text-slate-600 mt-0.5 capitalize">
+                {coach.coaching_days.map(d => d.slice(0, 3)).join(', ')}
+              </p>
+            )}
           </div>
 
           {/* is_active toggle */}
@@ -364,12 +395,19 @@ function CoachesTab() {
   const [deleting, setDeleting] = useState(false)
 
   // Add form state
-  const [showAdd,   setShowAdd]   = useState(false)
-  const [newName,   setNewName]   = useState('')
-  const [newRole,   setNewRole]   = useState<CoachRole>('assistant')
-  const [newEmail,  setNewEmail]  = useState('')
-  const [newRate,   setNewRate]   = useState(300)
-  const [adding,    setAdding]    = useState(false)
+  const [showAdd,     setShowAdd]     = useState(false)
+  const [newName,     setNewName]     = useState('')
+  const [newRole,     setNewRole]     = useState<CoachRole>('assistant')
+  const [newEmail,    setNewEmail]    = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [newRate,      setNewRate]      = useState(300)
+  const [newDays,      setNewDays]      = useState<string[]>([])
+  const [adding,       setAdding]       = useState(false)
+  const [addError,     setAddError]     = useState<string | null>(null)
+
+  const toggleNewDay = (day: string) => {
+    setNewDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
+  }
 
   const load = useCallback(async () => {
     setIsLoading(true)
@@ -392,7 +430,7 @@ function CoachesTab() {
     toast.success(`${coach?.name ?? 'Coach'} ${active ? 'activated' : 'deactivated'}`)
   }
 
-  const handleEdit = async (id: string, data: { name: string; role: CoachRole; per_session_rate: number }) => {
+  const handleEdit = async (id: string, data: { name: string; role: CoachRole; per_session_rate: number; coaching_days: string[] }) => {
     const { error } = await supabase.from('coaches').update(data).eq('id', id)
     if (error) { toast.error('Failed to update'); return }
     setCoaches(prev => prev.map(c => c.id === id ? { ...c, ...data } : c))
@@ -411,30 +449,40 @@ function CoachesTab() {
   }
 
   const handleAdd = async () => {
-    if (!newName.trim()) return
+    if (!newName.trim() || !newEmail.trim() || !newPassword) {
+      setAddError('Name, email, and password are all required to create a login')
+      return
+    }
     setAdding(true)
-    const { data, error } = await supabase
-      .from('coaches')
-      .insert({
-        name:             newName.trim(),
-        role:             newRole,
-        login_email:      newEmail.trim() || null,
-        per_session_rate: newRate,
-        is_active:        true,
-        academy_id:       '00000000-0000-0000-0000-000000000001',
+    setAddError(null)
+    try {
+      const { data, error } = await supabase.functions.invoke('create-coach', {
+        body: {
+          name:              newName.trim(),
+          email:             newEmail.trim(),
+          password:          newPassword,
+          role:              newRole,
+          per_session_rate:  newRate,
+          coaching_days:     newDays,
+        },
       })
-      .select()
-      .single()
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
 
-    setAdding(false)
-    if (error) { toast.error('Failed to add coach'); return }
-    setCoaches(prev => [...prev, data as Coach])
-    toast.success(`${newName} added`)
-    setShowAdd(false)
-    setNewName('')
-    setNewEmail('')
-    setNewRole('assistant')
-    setNewRate(300)
+      setCoaches(prev => [...prev, data.coach as Coach])
+      toast.success(`${newName} added — they can now log in with ${newEmail.trim()}`)
+      setShowAdd(false)
+      setNewName('')
+      setNewEmail('')
+      setNewPassword('')
+      setNewRole('assistant')
+      setNewRate(300)
+      setNewDays([])
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Failed to add coach')
+    } finally {
+      setAdding(false)
+    }
   }
 
   if (isLoading) {
@@ -479,8 +527,16 @@ function CoachesTab() {
             <input
               value={newEmail}
               onChange={e => setNewEmail(e.target.value)}
-              placeholder="Login email (optional)"
+              placeholder="Login email"
               type="email"
+              className="h-9 px-3 rounded-xl font-body text-sm text-white outline-none col-span-2"
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}
+            />
+            <input
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              placeholder="Login password (min 6 chars)"
+              type="password"
               className="h-9 px-3 rounded-xl font-body text-sm text-white outline-none col-span-2"
               style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}
             />
@@ -502,14 +558,37 @@ function CoachesTab() {
               style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}
             />
           </div>
+          <div className="space-y-1.5">
+            <p className="font-body text-[11px] text-slate-500 uppercase tracking-wider">Coaching Days</p>
+            <div className="flex flex-wrap gap-1.5">
+              {DAYS.map(day => (
+                <button
+                  key={day}
+                  onClick={() => toggleNewDay(day)}
+                  className={cn(
+                    'h-7 px-2.5 rounded-lg font-body text-[11px] font-semibold capitalize transition-all duration-150',
+                    newDays.includes(day)
+                      ? 'bg-grass text-pitch'
+                      : 'text-slate-400 hover:text-white',
+                  )}
+                  style={!newDays.includes(day) ? { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' } : {}}
+                >
+                  {day.slice(0, 3)}
+                </button>
+              ))}
+            </div>
+          </div>
           <p className="font-body text-[11px] text-slate-500">
-            Note: Create their Supabase Auth account separately in the Supabase dashboard.
+            Creates a real login — the coach can sign in immediately with this email and password.
           </p>
+          {addError && (
+            <p className="font-body text-xs text-danger">{addError}</p>
+          )}
           <div className="flex gap-2">
             <Button size="sm" variant="primary" icon={<Check size={13} />} loading={adding} onClick={handleAdd}>
               Add Coach
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => setShowAdd(false)}>
+            <Button size="sm" variant="secondary" onClick={() => { setShowAdd(false); setAddError(null) }}>
               Cancel
             </Button>
           </div>
@@ -641,7 +720,7 @@ export default function SettingsPage() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
-      className="space-y-6 pb-24 md:pb-8"
+      className="space-y-6 pb-8"
     >
       {/* Header */}
       <div className="flex items-center gap-3">

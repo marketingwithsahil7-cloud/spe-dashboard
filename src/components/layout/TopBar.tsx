@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Settings, LogOut } from 'lucide-react'
+import { Settings, LogOut, Menu } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
 import { signOut } from '../../hooks/useAuth'
 import { gsap } from '../../lib/animations'
 import { ROUTES } from '../../lib/constants'
+import { MobileDrawer } from './MobileDrawer'
 
 const PAGE_TITLES: Record<string, string> = {
   [ROUTES.DASHBOARD]:  'Dashboard',
@@ -26,8 +27,9 @@ export function TopBar() {
   const navigate    = useNavigate()
   const barRef      = useRef<HTMLDivElement>(null)
 
-  const [showMenu, setShowMenu]     = useState(false)
-  const [signingOut, setSigningOut] = useState(false)
+  const [showMenu, setShowMenu]       = useState(false)
+  const [signingOut, setSigningOut]   = useState(false)
+  const [drawerOpen, setDrawerOpen]   = useState(false)
 
   // Phase 2 of page-load timeline
   useEffect(() => {
@@ -67,9 +69,20 @@ export function TopBar() {
           borderBottom: '1px solid rgba(255,255,255,0.06)',
         }}
       >
-        <h1 className="font-display text-lg font-semibold uppercase tracking-widest text-white">
-          {title}
-        </h1>
+        <div className="flex items-center gap-3">
+          {/* Hamburger — mobile only, desktop already has the persistent Sidebar */}
+          <button
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Open menu"
+            className="md:hidden w-9 h-9 rounded-xl flex items-center justify-center text-white shrink-0"
+            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
+          >
+            <Menu size={18} />
+          </button>
+          <h1 className="font-display text-lg font-semibold uppercase tracking-widest text-white">
+            {title}
+          </h1>
+        </div>
 
         <div className="flex items-center gap-3">
           {/* Name + date (hidden on small phones) */}
@@ -183,6 +196,8 @@ export function TopBar() {
         </AnimatePresence>,
         document.body,
       )}
+
+      <MobileDrawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} />
     </>
   )
 }

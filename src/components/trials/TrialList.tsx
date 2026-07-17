@@ -6,6 +6,8 @@ import { TrialCard } from './TrialCard'
 import { TrialForm } from './TrialForm'
 import { TrialResolve } from './TrialResolve'
 import { Skeleton } from '../ui/Skeleton'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { useToast } from '../ui/Toast'
 import { cn } from '../../lib/utils'
 import type { Trial } from '../../types/index'
 
@@ -97,13 +99,16 @@ export function TrialList() {
   const statsRef = useRef<HTMLDivElement>(null)
   const listRef  = useRef<HTMLDivElement>(null)
 
-  const { trials, isLoading, error, addTrial, resolveTrial, convertToStudent, refetch } = useTrials()
+  const { trials, isLoading, error, addTrial, resolveTrial, convertToStudent, deleteTrial, refetch } = useTrials()
+  const toast = useToast()
 
   const [activeTab,     setActiveTab]     = useState<TabView>('pending')
   const [searchQuery,   setSearchQuery]   = useState('')
   const [formOpen,      setFormOpen]      = useState(false)
   const [resolveTarget, setResolveTarget] = useState<Trial | null>(null)
   const [resolveOpen,   setResolveOpen]   = useState(false)
+  const [deleteTarget,  setDeleteTarget]  = useState<Trial | null>(null)
+  const [deleting,      setDeleting]      = useState(false)
 
   // Per-status counts
   const tabCounts = useMemo((): Record<TabView, number> => ({
@@ -160,6 +165,20 @@ export function TrialList() {
   const handleResolveClose = () => {
     setResolveOpen(false)
     setResolveTarget(null)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await deleteTrial(deleteTarget.id)
+      toast.success(`${deleteTarget.name}'s trial entry deleted`)
+      setDeleteTarget(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete trial')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   // ── Error state ─────────────────────────────────────────────────────────────
@@ -287,6 +306,7 @@ export function TrialList() {
                 key={trial.id}
                 trial={trial}
                 onResolve={handleResolve}
+                onDelete={setDeleteTarget}
               />
             ))}
           </div>
@@ -297,7 +317,7 @@ export function TrialList() {
       <button
         onClick={() => setFormOpen(true)}
         data-magnetic
-        className="fixed bottom-24 right-5 md:bottom-8 md:right-8 z-30 w-14 h-14 rounded-full flex items-center justify-center shadow-lg glow-green transition-all duration-200 hover:scale-110 active:scale-95"
+        className="fixed bottom-6 right-5 md:bottom-8 md:right-8 z-30 w-14 h-14 rounded-full flex items-center justify-center shadow-lg glow-green transition-all duration-200 hover:scale-110 active:scale-95"
         style={{ background: 'linear-gradient(135deg, #00FF87 0%, #00D4FF 100%)' }}
         aria-label="Add trial"
       >
@@ -317,6 +337,17 @@ export function TrialList() {
         onClose={handleResolveClose}
         onResolve={resolveTrial}
         onConvert={convertToStudent}
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete this trial entry?"
+        description="Are you sure you want to delete this trial entry? This cannot be undone."
+        confirmLabel="Delete Trial"
+        variant="danger"
+        loading={deleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
       />
     </>
   )

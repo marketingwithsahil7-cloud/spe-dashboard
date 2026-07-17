@@ -83,6 +83,7 @@ export interface UseFinancialsReturn {
   updateExpense: (id: string, data: Partial<ExpenseInput>) => Promise<void>
   deleteExpense: (id: string) => Promise<void>
   addEmergencyTransaction: (data: EmergencyTxInput) => Promise<void>
+  deleteEmergencyTransaction: (id: string) => Promise<void>
   markRepaid: (id: string, repaidAmount: number, repaidDate: string) => Promise<void>
   addNote: (content: string) => Promise<void>
   deleteNote: (id: string) => Promise<void>
@@ -317,6 +318,12 @@ export function useFinancials(filterMonth: number, filterYear: number): UseFinan
     await load()
   }, [coachId, load])
 
+  const deleteEmergencyTransaction = useCallback(async (id: string): Promise<void> => {
+    const { error: err } = await supabase.from('emergency_fund_transactions').delete().eq('id', id)
+    if (err) throw err
+    await load()
+  }, [load])
+
   const markRepaid = useCallback(async (id: string, repaidAmount: number, repaidDate: string): Promise<void> => {
     const { error: err } = await supabase
       .from('emergency_fund_transactions')
@@ -358,6 +365,7 @@ export function useFinancials(filterMonth: number, filterYear: number): UseFinan
     updateExpense,
     deleteExpense,
     addEmergencyTransaction,
+    deleteEmergencyTransaction,
     markRepaid,
     addNote,
     deleteNote,

@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, useMotionValue, useTransform, animate } from 'framer-motion'
-import { User, Pencil, MessageCircle, Phone, Calendar, IndianRupee, ExternalLink } from 'lucide-react'
+import { User, Pencil, MessageCircle, Phone, Calendar, IndianRupee, ExternalLink, Trash2 } from 'lucide-react'
 import { gsap } from '../../lib/animations'
 import { Avatar } from '../ui/Avatar'
 import { Badge } from '../ui/Badge'
@@ -59,15 +59,16 @@ function BatchBadge({ batch }: { batch: string }) {
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
 interface StudentCardProps {
-  student: StudentWithFee
-  onEdit:  (student: StudentWithFee) => void
-  index?:  number
+  student:   StudentWithFee
+  onEdit:    (student: StudentWithFee) => void
+  onDelete?: (student: StudentWithFee) => void
+  index?:    number
 }
 
-export function StudentCard({ student, onEdit, index = 0 }: StudentCardProps) {
+export function StudentCard({ student, onEdit, onDelete, index = 0 }: StudentCardProps) {
   const navigate = useNavigate()
   const cardRef  = useRef<HTMLDivElement>(null)
-  const { canEditStudent } = usePermissions()
+  const { canEditStudent, canDeleteStudent } = usePermissions()
   const { isMobile } = useMediaQuery()
 
   // Swipe-to-reveal state (mobile only)
@@ -271,6 +272,14 @@ export function StudentCard({ student, onEdit, index = 0 }: StudentCardProps) {
             disabled={!waURL}
             onClick={(e) => { e.stopPropagation(); if (waURL) window.open(waURL, '_blank') }}
           />
+          {canDeleteStudent && onDelete && (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<Trash2 size={12} className="text-danger" />}
+              onClick={(e) => { e.stopPropagation(); onDelete(student) }}
+            />
+          )}
         </div>
       </div>
       </motion.div>

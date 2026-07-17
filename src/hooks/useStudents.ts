@@ -211,11 +211,25 @@ export function useStudents(options?: UseStudentsOptions): UseStudentsReturn {
     await load()
   }, [load])
 
-  // Soft delete — sets status to 'closed' rather than hard deleting
+  // Hard delete — removes the student and all related records (attendance,
+  // payments, event availability, report cards). Explicit cleanup rather than
+  // relying solely on DB-level ON DELETE CASCADE, since not every FK is
+  // guaranteed to have cascade configured on the live database.
   const deleteStudent = useCallback(async (id: string): Promise<void> => {
+    const [attErr, payErr, availErr, reportErr] = await Promise.all([
+      supabase.from('attendance').delete().eq('student_id', id).then(r => r.error),
+      supabase.from('payments').delete().eq('student_id', id).then(r => r.error),
+      supabase.from('event_availability').delete().eq('student_id', id).then(r => r.error),
+      supabase.from('student_reports').delete().eq('student_id', id).then(r => r.error),
+    ])
+    if (attErr)    throw attErr
+    if (payErr)    throw payErr
+    if (availErr)  throw availErr
+    if (reportErr) throw reportErr
+
     const { error: err } = await supabase
       .from('students')
-      .update({ status: 'closed' })
+      .delete()
       .eq('id', id)
 
     if (err) throw err

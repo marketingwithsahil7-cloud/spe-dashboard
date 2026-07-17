@@ -4,7 +4,16 @@
       "PowerShell(Get-Process *)",
       "Bash(npm run *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git restore *)",
+      "Bash(file public/icons/logo-source.jpg)",
+      "Bash(grep -rn \"icon-192\\\\|icon-512\\\\|logo-source\" --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.html\" --include=\"*.json\" -r . --exclude-dir=node_modules --exclude-dir=dist)",
+      "Bash(npx tsc *)",
+      "Bash(npx eslint *)",
+      "Bash(awk '/## 14e\\\\. SUPABASE RLS FIX/,/^## 15\\\\./' CLAUDE.md)",
+      "Bash(echo \"EXIT_CODE:$?\")"
     ]
   }
 }

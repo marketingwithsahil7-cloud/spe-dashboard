@@ -2,16 +2,20 @@ import { useRef, useEffect, useState, useCallback } from 'react'
 import { format } from 'date-fns'
 import {
   CheckCircle2, XCircle, AlertTriangle, ChevronLeft, ChevronRight,
-  Users, Clock, Loader2,
+  Users, Clock, Loader2, CalendarOff,
 } from 'lucide-react'
 import { gsap } from '../../lib/animations'
 import { useAuthStore } from '../../store/authStore'
+import { useAcademySettings } from '../../hooks/useAcademySettings'
 import { fetchDayAttendance, fetchCoachAttendance, fetchAllCoachAttendanceForMonth } from '../../hooks/useCoaches'
 import { Avatar } from '../ui/Avatar'
 import { Skeleton } from '../ui/Skeleton'
 import { cn, formatDate } from '../../lib/utils'
 import { BATCHES } from '../../lib/constants'
 import type { Coach, CoachAttendance as CoachAttRecord } from '../../types/index'
+
+// Falls back to Tue/Thu/Sat when academy_settings.training_days hasn't been configured.
+const DEFAULT_ACADEMY_DAYS = ['tuesday', 'thursday', 'saturday']
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -77,13 +81,20 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
   const currentCoach     = useAuthStore(s => s.coach)
   const isOwnerUser      = useAuthStore(s => s.role === 'owner')
   const isHeadOrOwnerUser = useAuthStore(s => s.role === 'owner' || s.role === 'head')
+  const { settings: academySettings } = useAcademySettings()
 
   // Assistants can only mark/view their own row — head/owner see everyone
   const visibleCoaches = isHeadOrOwnerUser
     ? coaches
     : coaches.filter(c => c.id === currentCoach?.id)
 
+  const academyDays = academySettings?.training_days?.length
+    ? academySettings.training_days
+    : DEFAULT_ACADEMY_DAYS
+
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const selectedDayName = format(new Date(`${selectedDate}T12:00:00`), 'EEEE').toLowerCase()
+  const isAcademyDay = academyDays.includes(selectedDayName)
   const [dayRecords,   setDayRecords]   = useState<CoachAttRecord[]>([])
   const [loadingDay,   setLoadingDay]   = useState(false)
   const [markingId,    setMarkingId]    = useState<string | null>(null)  // coachId-batch
@@ -122,7 +133,7 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
   }
 
   async function handleMark(coach: Coach, batch: string) {
-    if (!currentCoach) return
+    if (!currentCoach || !isAcademyDay) return
     const key  = `${coach.id}-${batch}`
     const note = noteDrafts[batch]?.trim() || null
     setMarkingId(key)
@@ -159,7 +170,7 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
   }
 
   async function handleMarkAll(batch: string) {
-    if (!currentCoach) return
+    if (!currentCoach || !isAcademyDay) return
     const note = noteDrafts[batch]?.trim() || undefined
     setMarkingAll(batch)
     try {
@@ -225,7 +236,7 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
             <ChevronLeft size={14} />
           </button>
           <span className="font-body text-xs text-white min-w-[80px] text-center">
-            {isToday ? 'Today' : format(new Date(selectedDate), 'd MMM')}
+            {isToday ? 'Today' : format(new Date(`${selectedDate}T12:00:00`), 'd MMM')}
           </span>
           <button
             onClick={() => navigateDate(1)}
@@ -238,7 +249,18 @@ function SectionA({ coaches, markCoachAttendance, ownerConfirmAttendance }: Sect
       </div>
 
       {/* Batch sections */}
-      {loadingDay ? (
+      {!isAcademyDay ? (
+        <div
+          className="rounded-xl p-6 flex flex-col items-center gap-2 text-center"
+          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          <CalendarOff size={20} className="text-slate-500" />
+          <p className="font-body text-sm text-slate-400">
+            Not an academy day — attendance can only be marked on{' '}
+            {academyDays.map(d => d[0].toUpperCase() + d.slice(1)).join(', ')}.
+          </p>
+        </div>
+      ) : loadingDay ? (
         <div className="space-y-4">
           {BATCHES.filter(b => b !== 'Both').map(b => (
             <div key={b} className="rounded-xl p-4 space-y-3"

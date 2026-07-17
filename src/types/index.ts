@@ -94,6 +94,7 @@ export interface Coach {
   phone: string | null
   login_email: string | null
   is_active: boolean
+  coaching_days: string[] | null
   academy_id: string
   created_at: string
 }

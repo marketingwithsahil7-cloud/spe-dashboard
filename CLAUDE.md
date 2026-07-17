@@ -209,7 +209,9 @@ Card:    linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.0
 `event_id, student_id, status (available/not_available/maybe/no_response)`
 
 ### coaches
-`user_id (auth.users ref, no FK), name, role (owner/head/assistant), per_session_rate, login_email, is_active (bool, default true)`
+`user_id (auth.users ref, no FK), name, role (owner/head/assistant), per_session_rate, login_email, is_active (bool, default true), coaching_days (text[], nullable)`
+- `coaching_days` — which weekdays this coach is scheduled to coach, stored lowercase full day names (`'tuesday'`, matching `academy_settings.training_days`'s convention). Set at creation via the owner's Coach Management panel (`SettingsPage.tsx`'s `CoachesTab`); editable per-coach afterward. Informational only — does not currently gate anything (e.g. a coach can still mark attendance on a day outside their own `coaching_days`, as long as it's an academy day per section 12's academy-day gate). See section 14h.
+- New coach accounts (real Supabase Auth logins, not just roster rows) are created via the `create-coach` Edge Function — see section 14i. Coaches added before this existed (e.g. Jay, Priya) have `user_id = NULL` until/unless migrated onto a real login separately.
 
 ### academy_settings
 `academy_name, tagline, logo_url, training_days (text[]), academy_id (unique)`
@@ -302,7 +304,7 @@ src/
   components/
     ui/           Button, Card, Badge, Avatar, Modal, Drawer,
                   Input, Select, Toggle, Skeleton, CustomCursor
-    layout/       AppLayout, Sidebar, BottomNav, TopBar
+    layout/       AppLayout, Sidebar, TopBar, MobileDrawer, navItems.ts (shared NAV_ITEMS)
     dashboard/    StatsCards, TrialAlertBar, ActionPanel, Charts, SoccerBall3D
     students/     StudentList, StudentCard, StudentForm, StudentProfile, ReportCardForm
     attendance/   AttendanceSheet, AttendanceToggle, AttendanceHistory
@@ -330,6 +332,11 @@ src/
     authStore.ts      Zustand: user, role, session, loading, authError
   types/
     index.ts          All TypeScript interfaces matching DB schema
+supabase/
+  schema.sql          Original bootstrap schema — stale, see section 14 for the
+                      real migration history that's been applied on top of it
+  functions/
+    create-coach/     Edge Function — owner-only real Auth login creation, see 14i
 ```
 
 ---
@@ -373,6 +380,13 @@ src/
   - **Payment deletion**: `usePayments.ts` gained `deletePayment(id)`; `PaymentList` gained per-row delete (icon button, only rendered when the caller passes `onDelete` — gated on `canRecordPayment` in `FeeDashboard.tsx`) behind a `ConfirmDialog`. `useStudents().applyPaymentOptimistic` gained an optional third `hasPayment` param (default `true`) so deleting a student's only payment for the viewed cycle correctly reverts their fee-status badge locally instead of needing a full refetch.
   - **Invoice history retrieval**: the invoice-building logic previously inline in `PaymentForm.tsx` was extracted to `src/lib/invoiceHelpers.ts` (`buildInvoice`, reusable outside the payment-success flow). `PaymentList` gained a per-row "view invoice" icon (hidden for `is_reason_only` rows, which never had one) that regenerates/re-uploads the PDF on demand via `buildInvoice` and opens it — works even for older payments predating this feature, since generation is idempotent (`upsert: true` on the same `{paymentId}.pdf` storage path).
   - **Emergency Fund RLS gap**: root-caused to the same "owner added to `coaches.role` after policies were written" class of bug as the Phase 13 payments incident (section 12) — `emergency_fund_transactions`' policies (created ad-hoc, never in `supabase/schema.sql`) only recognized `role = 'head'`. Fix is a SQL migration the owner must run manually — see section 14e (out of reach of this codebase since it requires direct Supabase SQL Editor / service-role access, not the anon key `.env` uses).
+- [x] **Phase 26 (2026-07-17):** Delete affordances (students/trials/emergency fund), owner-only coach account creation, academy-day attendance gate, mobile side-nav drawer.
+  - **Delete students**: `useStudents().deleteStudent(id)` changed from a soft delete (set `status: 'closed'`) to a hard delete — explicitly removes `attendance`/`payments`/`event_availability`/`student_reports` rows for that student, then the `students` row itself. `StudentCard` gained a delete icon (gated on the existing `canDeleteStudent`), `StudentsPage` holds `deleteTarget` state + a `ConfirmDialog` ("This will delete all their attendance, fee records, and data") + a toast on success/failure. Requires a DB migration — see section 14f.
+  - **Delete trials**: `useTrials()` gained `deleteTrial(id)`; `TrialCard` gained a delete icon (gated on `canSeeTrials`, i.e. head/owner — the Trials page is already head/owner-only end to end, so no new permission flag was added); `TrialList` holds the `deleteTarget`/`ConfirmDialog`/toast state, same pattern as students. Requires a DB migration — see section 14g (`trials` never had a DELETE policy).
+  - **Delete emergency fund transactions**: `useFinancials()` gained `deleteEmergencyTransaction(id)`; `EmergencyFund.tsx`'s `TxRow` gained a delete icon (gated on the `isHeadOrOwner` prop already threaded through since Phase 24); `EmergencyFund`/`FinancialsPage` hold the `deleteTarget`/`ConfirmDialog` state. No new RLS needed — the Phase 25 emergency-fund RLS fix (section 14e) already granted head/owner DELETE on this table.
+  - **Owner-only coach account creation**: previously "Add Coach" in Settings → Coach Management only inserted a `coaches` roster row with no real login (the note in the UI said to create the Supabase Auth account manually in the dashboard). Now it calls a new `create-coach` Edge Function (`supabase/functions/create-coach/index.ts`) that creates a real Auth user via the service-role key (never exposed to the frontend) and the `coaches` row in one call, rolling back the auth user if the roster insert fails. The Add Coach form gained a required password field and a coaching-days multi-select (reusing the same day-toggle UI as `AcademyTab`'s training-days picker); `CoachRow`'s edit mode also gained the coaching-days toggle for existing coaches. New `coaches.coaching_days TEXT[]` column — see section 14h. Edge Function must be deployed manually via the Supabase CLI — see section 14i.
+  - **Coach attendance restricted to academy days**: `CoachAttendance.tsx`'s `SectionA` now reads `academy_settings.training_days` (falling back to `['tuesday','thursday','saturday']` if unset) and computes `isAcademyDay` for the currently-selected date. On a non-academy day, the batch-marking UI is replaced with a blocked message instead of being rendered; `handleMark`/`handleMarkAll` also early-return as defense in depth even though the UI already hides the triggering buttons. Coach attendance only — student attendance (`AttendanceSheet.tsx`) is untouched.
+  - **Mobile side-nav drawer**: replaced the mobile bottom tab bar (`BottomNav.tsx`, deleted) with a hamburger menu (`TopBar.tsx`, mobile-only via `md:hidden`) that opens a new `MobileDrawer.tsx` — a left-sliding drawer (portal + backdrop, same structural pattern as `ConfirmDialog`/`Drawer`) listing every nav item with active-route highlighting, plus the coach info/sign-out block from the desktop `Sidebar`. Nav item config was deduplicated out of `Sidebar.tsx` into a new shared `src/components/layout/navItems.ts` (`NAV_ITEMS`), which both `Sidebar` and `MobileDrawer` now import. `AppLayout.tsx` no longer renders `BottomNav`; its `<main>` bottom padding and several pages' FAB offsets (`StudentList`, `TrialList`) that were tuned to clear the old 68px bottom bar were reduced accordingly (`pb-24`/`bottom-24` → `pb-8`/`bottom-6` roughly, mobile only — desktop `md:` values unchanged). Desktop is unaffected — the persistent `Sidebar` (`hidden md:flex`) already covered `md:`+ breakpoints and continues to.
 
 ---
 
@@ -442,6 +456,10 @@ Hard-won lessons — read before touching these areas to avoid re-introducing fi
 | `coach_attendance.session_note` column | **Manual setup required if not already run** — SQL in section 14c; without it, marking attendance with a note filled in throws an insert error |
 | `payments.is_reason_only` column | **Manual setup required if not already run** — SQL in section 14d; without it, using the "reason for not paying" feature in PaymentForm throws an insert error |
 | `emergency_fund_transactions` RLS owner gap | **Manual setup required if not already run** — SQL in section 14e; without it, the owner role (Sahil) gets a silent/rejected insert when adding an Emergency Fund transaction (same root-cause class as the Phase 13 payments RLS bug — the owner role was added after this table's policies were first written) |
+| `students`/`attendance`/`event_availability`/`student_reports` DELETE policies | **Manual setup required if not already run** — SQL in section 14f; without it, deleting a student from the Students page throws an RLS error on the cascade cleanup or the final student row delete |
+| `trials` DELETE policy | **Manual setup required if not already run** — SQL in section 14g; without it, deleting a trial entry throws an RLS error |
+| `coaches.coaching_days` column | **Manual setup required if not already run** — SQL in section 14h; without it, creating or editing a coach's coaching days throws an insert/update error |
+| `create-coach` Edge Function | **Manual deploy required** — code in section 14i; without deploying it, the "Add Coach" form in Settings → Coach Management fails since it calls a function that doesn't exist yet on the project |
 
 All other previously-tracked issues (TS build errors, login animation race, WebGL context loss, Events RLS, Drawer scroll, payment RLS role mismatch, coach-attendance pending-for-owner, navigation-stuck) are **resolved** — root-cause patterns are captured in section 12 (Gotchas) to prevent regression.
 
@@ -576,6 +594,91 @@ CREATE POLICY "Head or owner can delete emergency_fund_transactions"
 ```
 
 While auditing this, `payments` DELETE (needed for the new fee-deletion feature, Phase 25) was also checked: `supabase/schema.sql` still shows `role = 'head'` only (line ~318), but section 13's Known Issues marks the payments RLS role mismatch as historically resolved, meaning the live database's policy was already patched to include `'owner'` directly (outside this file). If deleting a payment as the owner ever throws an RLS error in practice, apply the identical drop-and-recreate pattern above to the `payments` table instead.
+
+---
+
+## 14f. SUPABASE RLS — student deletion (Phase 26)
+
+`useStudents().deleteStudent(id)` now hard-deletes a student (previously it only soft-closed the record — see section 12 if that behavior is referenced elsewhere) and explicitly cleans up `attendance`, `payments`, `event_availability`, and `student_reports` rows for that student before deleting the `students` row itself. Run this SQL to add the DELETE policies these operations need (owner + head only), and to add a DELETE policy on `students` itself, which never had one:
+
+```sql
+CREATE POLICY "Head or owner can delete students"
+  ON students FOR DELETE TO authenticated
+  USING (
+    EXISTS (SELECT 1 FROM coaches WHERE user_id = auth.uid() AND role IN ('owner', 'head'))
+  );
+
+CREATE POLICY "Head or owner can delete attendance"
+  ON attendance FOR DELETE TO authenticated
+  USING (
+    EXISTS (SELECT 1 FROM coaches WHERE user_id = auth.uid() AND role IN ('owner', 'head'))
+  );
+
+CREATE POLICY "Head or owner can delete event_availability"
+  ON event_availability FOR DELETE TO authenticated
+  USING (
+    EXISTS (SELECT 1 FROM coaches WHERE user_id = auth.uid() AND role IN ('owner', 'head'))
+  );
+
+CREATE POLICY "Head or owner can delete student_reports"
+  ON student_reports FOR DELETE TO authenticated
+  USING (
+    EXISTS (SELECT 1 FROM coaches WHERE user_id = auth.uid() AND role IN ('owner', 'head'))
+  );
+
+-- payments DELETE: reset with the same drop-and-recreate pattern as 14e, in case the
+-- live policy still only checks role = 'head' (see note at the end of section 14e).
+DROP POLICY IF EXISTS "Head coaches can delete payments" ON payments;
+DROP POLICY IF EXISTS "Head or owner can delete payments" ON payments;
+CREATE POLICY "Head or owner can delete payments"
+  ON payments FOR DELETE TO authenticated
+  USING (
+    EXISTS (SELECT 1 FROM coaches WHERE user_id = auth.uid() AND role IN ('owner', 'head'))
+  );
+```
+
+---
+
+## 14g. SUPABASE RLS — trial deletion (Phase 26)
+
+`trials` never had a DELETE policy. Run this to enable the new delete-trial feature on the Trials page (owner + head only, matching the page's existing route gate):
+
+```sql
+CREATE POLICY "Head or owner can delete trials"
+  ON trials FOR DELETE TO authenticated
+  USING (
+    EXISTS (SELECT 1 FROM coaches WHERE user_id = auth.uid() AND role IN ('owner', 'head'))
+  );
+```
+
+---
+
+## 14h. SUPABASE MIGRATION — coaches.coaching_days column (Phase 26)
+
+Backs the "which days does this coach coach" field in the new owner-only Coach Management flow (`SettingsPage.tsx`'s `CoachesTab`, and the `create-coach` Edge Function in section 14i). Stores lowercase full day names, same convention as `academy_settings.training_days`.
+
+```sql
+ALTER TABLE coaches
+ADD COLUMN IF NOT EXISTS coaching_days TEXT[] DEFAULT '{}';
+```
+
+No RLS changes needed — this rides along on whatever UPDATE/INSERT policy `coaches` already has (the `create-coach` Edge Function inserts using the service_role key, which bypasses RLS entirely).
+
+---
+
+## 14i. SUPABASE EDGE FUNCTION — create-coach (Phase 26)
+
+Owner-only coach account creation now creates a real Supabase Auth login (not just a `coaches` roster row) via a new Edge Function, since creating auth users requires the `service_role` key, which must never be shipped to the frontend. Code lives at `supabase/functions/create-coach/index.ts` in this repo. Deploy it with the Supabase CLI:
+
+```
+supabase functions deploy create-coach
+```
+
+No manual secrets to configure — `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically into every Edge Function's environment by Supabase.
+
+The function: (1) verifies the caller is authenticated and looks up their own `coaches.role` using the service-role client — rejecting with 403 if it isn't `'owner'` (never trust a client-supplied role flag for this check); (2) creates the auth user via `admin.auth.admin.createUser({ email, password, email_confirm: true })`; (3) inserts the new `coaches` row (`user_id`, `name`, `role`, `login_email`, `per_session_rate`, `coaching_days`, `is_active: true`); (4) if the `coaches` insert fails, rolls back by deleting the just-created auth user, so a failed call never leaves an orphaned login with no roster row.
+
+The frontend calls it via `supabase.functions.invoke('create-coach', { body: {...} })` from `SettingsPage.tsx`'s `handleAdd` — replacing the old direct `supabase.from('coaches').insert(...)` path, which only ever created a roster row with no real login (the coach's Supabase Auth account had to be created manually in the dashboard beforehand). Editing/deactivating/deleting an *existing* coach row is unaffected and still goes through direct table calls (owner-only, RLS-gated) — only *creating* a coach now requires the Edge Function, since only creation needs `auth.admin.createUser`.
 
 ---
 

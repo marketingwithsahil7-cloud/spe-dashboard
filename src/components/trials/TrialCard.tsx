@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { differenceInDays } from 'date-fns'
-import { MessageCircle, CheckCircle2, Calendar } from 'lucide-react'
+import { MessageCircle, CheckCircle2, Calendar, Trash2 } from 'lucide-react'
 import { gsap } from '../../lib/animations'
 import { Avatar } from '../ui/Avatar'
 import { Badge } from '../ui/Badge'
@@ -15,6 +15,7 @@ import type { Trial } from '../../types/index'
 interface TrialCardProps {
   trial:     Trial
   onResolve: (trial: Trial) => void
+  onDelete?: (trial: Trial) => void
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -50,7 +51,7 @@ function getWAButtonConfig(days: number): { label: string; style?: React.CSSProp
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function TrialCard({ trial, onResolve }: TrialCardProps) {
+export function TrialCard({ trial, onResolve, onDelete }: TrialCardProps) {
   const cardRef = useRef<HTMLDivElement>(null)
   const { canSeeTrials } = usePermissions()
 
@@ -98,6 +99,16 @@ export function TrialCard({ trial, onResolve }: TrialCardProps) {
           )}
         </div>
         <Badge variant={trial.status} />
+        {canSeeTrials && onDelete && (
+          <button
+            onClick={() => onDelete(trial)}
+            className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-danger transition-colors"
+            style={{ background: 'rgba(255,255,255,0.04)' }}
+            title="Delete trial"
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
       </div>
 
       {/* Trial date */}
